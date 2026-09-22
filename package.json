@@ -1,0 +1,24 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lokale AI-assistent met Ollama (gemma4:12b), web search en memory.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/main/__tests__/*.test.js",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "electron": "^44.4.3",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.2"
+  }
+}

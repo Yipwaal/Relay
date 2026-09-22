@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"
+    />
+    <title>Relay</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Relay</h1>
+      </header>
+      <main id="messages" aria-live="polite"></main>
+      <form id="chat-form">
+        <textarea id="chat-input" placeholder="Stel een vraag..." rows="2"></textarea>
+        <button type="submit" id="send-button">Verstuur</button>
+      </form>
+    </div>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

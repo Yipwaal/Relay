@@ -102,6 +102,44 @@ test('runAgentTurn weigert remember nadat web_search deze beurt al gebruikt is',
   }
 });
 
+test('runAgentTurn weigert remember nadat search_documents deze beurt al gebruikt is', async () => {
+  const restore = mockFetchSequence([
+    nativeToolCallBody('search_documents', { query: 'test' }),
+    nativeToolCallBody('remember', { fact: 'info uit een document' }),
+    finalAnswerBody('Klaar.'),
+  ]);
+
+  try {
+    let rememberExecuted = false;
+    const tools = new Map<string, ToolDefinition>();
+    tools.set('search_documents', {
+      name: 'search_documents',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        return { results: [{ document: 'd', text: 't', score: 0.9 }] };
+      },
+    });
+    tools.set('remember', {
+      name: 'remember',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        rememberExecuted = true;
+        return { stored: true, id: 1, text: 'x' };
+      },
+    });
+
+    const { events, toolResults } = collectingEvents();
+    await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'zoek in mijn documenten en onthoud iets' }], events);
+
+    assert.equal(rememberExecuted, false, 'remember.execute() had nooit aangeroepen mogen worden');
+    assert.ok(toolResults.some((r) => !r.ok && r.summary.startsWith('Geweigerd:')));
+  } finally {
+    restore();
+  }
+});
+
 test('runAgentTurn staat remember toe als er geen web-tool in deze beurt gebruikt is', async () => {
   const restore = mockFetchSequence([nativeToolCallBody('remember', { fact: 'Houdt van koffie' }), finalAnswerBody('Onthouden!')]);
 

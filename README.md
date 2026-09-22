@@ -12,13 +12,15 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 1 — Basis chat (streaming, instelbare system prompt)
 - [x] Fase 2 — Web search + fetch (tool calling)
 - [x] Fase 3 — Memory (SQLite)
-- [ ] Fase 4 — RAG over documenten (optioneel)
+- [x] Fase 4 — RAG over documenten
 
 ## Vereisten
 
 - Node.js 22+
 - [Ollama](https://ollama.com) lokaal draaiend op `http://localhost:11434`
 - Het model gepulled: `ollama pull gemma4:12b`
+- Voor Fase 4 (documenten doorzoeken): een embedding-model gepulld, bv.
+  `ollama pull embeddinggemma` (zie config.json's `embedModel`)
 
 ## Installeren en starten
 
@@ -40,7 +42,8 @@ De system prompt, het model en de Ollama-URL staan in `config/config.json`
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent.",
   "toolMode": "auto",
-  "numCtx": 8192
+  "numCtx": 8192,
+  "embedModel": "embeddinggemma"
 }
 ```
 
@@ -69,30 +72,39 @@ of `OLLAMA_API_KEY` te overschrijven/in te stellen. `.env` staat in
 ```
 src/
   main/
-    main.ts          Electron-lifecycle + venster aanmaken
+    main.ts          Electron-lifecycle + venster aanmaken + composition root
+    db.ts             Opent de SQLite-database (node:sqlite), PRAGMA user_version-migraties
     config.ts         Leest config/config.json + .env-overrides
     ollama-client.ts   Streaming NDJSON-client voor Ollama's /api/chat
+    ollama-embed.ts    Client voor Ollama's /api/embed (document-embeddings, Fase 4)
     preload.ts         contextBridge-API voor de renderer
     ipc/
       chat-handler.ts    IPC-validatie + wiring tussen renderer en agent-loop
-      memory-handler.ts   invoke/handle-CRUD voor het instellingenscherm
+      memory-handler.ts   invoke/handle-CRUD voor het geheugen-instellingenscherm
+      documents-handler.ts invoke/handle-CRUD + dialog.showOpenDialog voor documenten
     chat/
       agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
       capabilities.ts  Detecteert of het model native tools ondersteunt
       system-prompt.ts  Assembleert system prompt: base + memory + tool-appendix
     tools/
-      index.ts         Tool-registry (web_search, web_fetch, remember)
+      index.ts         Tool-registry (web_search, web_fetch, remember, search_documents)
       web-search.ts     Ollama's hosted web search API
       web-fetch.ts       Ollama's hosted web fetch API
       remember.ts         Tool waarmee het model zelf een feit opslaat
+      search-documents.ts  Tool die geïndexeerde documenten doorzoekt
       sanitize.ts        Strip protocol-markers uit externe content + size cap
     memory/
-      db.ts            Opent de SQLite-database (node:sqlite)
       store.ts           CRUD + validatie + budget-selectie voor de system prompt
+    documents/
+      extract.ts        Tekst-extractie per bestandsextensie (txt/md/pdf/docx)
+      chunker.ts          Pure chunking-functie (alinea's, zinsgrenzen, overlap)
+      vector.ts            Float32<->BLOB, normalize, dot, topK (pure functies)
+      store.ts              DocumentStore: CRUD + brute-force cosine similarity search
+      ingest.ts              Pipeline: extract -> chunk -> embed -> store
   renderer/    Chat-UI + instellingenscherm (HTML/CSS/TS), praat alleen via de preload-bridge
   shared/      IPC-typedefinities die de preload-grens passeren
-config/        config.json — instelbare system prompt / model / URL / toolMode / numCtx
+config/        config.json — instelbare system prompt / model / URL / toolMode / numCtx / embedModel
 assets/        icon.svg / icon.png
 .claude/agents/  Subagents voor Claude Code tijdens het bouwen
 ```
@@ -173,8 +185,10 @@ worden (`@electron/rebuild`) — onbetrouwbaar in een sandbox/CI-omgeving.
 `node:sqlite` heeft geen rebuild-stap nodig (nog experimenteel, geen
 stabiliteitsgaranties tussen Node-versies). De driver zit achter de
 `MemoryStore`-interface (`src/main/memory/store.ts`), dus een latere overstap
-raakt alleen `src/main/memory/db.ts`. De database staat in Electrons
-`userData`-map (niet in de repo/`config/`), pad wordt bij opstarten gelogd.
+raakt alleen `src/main/db.ts` (met Fase 4 gedeeld met de documenten-tabellen,
+zie hieronder — één database, `PRAGMA user_version` als migratiemechanisme).
+De database staat in Electrons `userData`-map (niet in de repo/`config/`), pad
+wordt bij opstarten gelogd.
 
 **Hoe het model zelf iets onthoudt:** een `remember(fact)`-tool, net als
 `web_search`/`web_fetch` (native tool-calling of het prompt-fallback-protocol
@@ -213,3 +227,92 @@ bewust geen state tussen beurten bij (zie Fase 2's transcript-eigenaarschap).
 Een volledige oplossing (bv. een expliciete bevestigingsstap voor
 model-feiten, of state op gespreksniveau) is een structurele keuze voor een
 latere iteratie, via de `architect`-subagent.
+
+## Documenten / RAG (Fase 4)
+
+Documenten toevoegen kan via **⚙ Instellingen → Documenten → "Document
+toevoegen..."** (opent een native bestandskiezer). Ondersteunde formaten:
+**.txt, .md, .pdf, .docx** — expliciet gekozen door de gebruiker; de
+architect-aanbeveling was om met alleen tekst/markdown te beginnen, maar PDF
+en Word bleken allebei nodig.
+
+### Embeddings: Ollama's `/api/embed`, lokaal model
+
+Documenten worden in stukken geknipt (zie "Chunking" hieronder) en per stuk
+omgezet naar een vector via Ollama's `/api/embed` — dezelfde lokale
+`ollamaUrl` als de chat (`assertLocalOllamaUrl` in `config.ts` dwingt al af
+dat dit alleen `localhost`/`127.0.0.1`/`::1` mag zijn). Vereist een apart
+gepulled embedding-model, geconfigureerd via `embedModel` in `config.json`
+(default `embeddinggemma`, meertalig en klein). Ontbreekt het model, dan
+mislukt het toevoegen van een document met een duidelijke foutmelding
+("Voer `ollama pull <model>` uit") — chat, memory en web blijven gewoon
+werken.
+
+### Vector-opslag: BLOB in dezelfde database, brute-force cosine similarity
+
+Geen SQLite-vector-extensie (sqlite-vec/vss) en geen aparte vectordatabase:
+embeddings staan als Float32-BLOB in `document_chunks` (dezelfde `relay.db`
+als memory, met een tweede migratiestap op `PRAGMA user_version`), en een
+zoekopdracht vergelijkt in JavaScript met alle chunks van het huidige
+`embedModel` (`src/main/documents/vector.ts`). Voor persoonlijk gebruik
+(honderden tot een paar duizend chunks) duurt dat ~10-20ms — geen extra
+native dependency, geen rebuild-risico. Bij >20k chunks of merkbaar trage
+zoekopdrachten: eerst een in-memory vectorcache overwegen, pas daarna een
+vector-extensie.
+
+Wisselt `embedModel`, dan zijn oude documenten niet meer doorzoekbaar (hun
+vectoren zijn onvergelijkbaar met een ander model) — ze blijven bewaard en
+staan in het instellingenscherm gemarkeerd als "verouderd embedding-model"
+tot je ze opnieuw toevoegt.
+
+### Chunking
+
+Pure functie (`src/main/documents/chunker.ts`, unit-testbaar zonder Ollama):
+alinea's gretig samenvoegen tot een doellengte, met terugval op zinsgrenzen
+en daarna een harde woordgrens voor te lange alinea's, plus overlap tussen
+chunks. Geen tokenizer in dit project (net als Fase 3's memory-budget) — de
+constanten zijn in tekens:
+
+- `CHUNK_TARGET_CHARS = 1200`, `CHUNK_MAX_CHARS = 1500`
+- `CHUNK_OVERLAP_CHARS = 200`, `MIN_CHUNK_CHARS = 200` (een te korte laatste
+  chunk wordt samengevoegd met de vorige)
+- Een markdown-kop (`#`) begint bij voorkeur een nieuwe chunk.
+
+Bovengrenzen tegen te grote/trage documenten: **20 MB** bronbestand,
+**1.000.000 tekens** na extractie (ruim voldoende voor persoonlijk gebruik,
+~830 chunks) — daarboven een duidelijke foutmelding i.p.v. een trage of
+halfwerkende ingest.
+
+### Retrieval als tool, niet als automatische injectie
+
+Net als `web_search`/`web_fetch`/`remember`: een nieuwe `search_documents(query)`-tool
+(altijd beschikbaar zodra er minstens één document met het huidige
+`embedModel` bestaat, geen `OLLAMA_API_KEY` nodig — embeddings zijn volledig
+lokaal). Overwogen alternatief: memory's aanpak (altijd automatisch de
+relevantste chunks meesturen). Afgewezen omdat dat (a) bij élk bericht een
+embedding-aanroep + modelwissel in Ollama's geheugen zou kosten, (b) de
+zoekvraag naïef op het laatste bericht zou baseren i.p.v. het model een
+zelfstandige vraag laten formuleren, en (c) **onzichtbaar** zou zijn — botst
+met CLAUDE.md's eis dat elke tool-aanroep zichtbaar getoond wordt vóór
+gebruik. De beschikbare documenttitels staan in de dynamische
+tool-description, wat helpt bij modellen die de tool anders te weinig kiezen
+(vooral in prompt-modus).
+
+### Veiligheid (security-review Fase 4)
+
+- **Bestandsselectie gebeurt uitsluitend in main** via `dialog.showOpenDialog`
+  — de renderer levert nooit een bestandspad aan. Zonder deze maatregel zou
+  een gecompromitteerde renderer een willekeurig pad kunnen opgeven (bv.
+  `~/.ssh/id_rsa`), dat dan ingelezen én doorzoekbaar gemaakt zou worden.
+- De `remember`-na-externe-content-guard uit Fase 3 (weigert `remember` na
+  `web_search`/`web_fetch` in dezelfde beurt) is uitgebreid met
+  `search_documents`: een geïndexeerd document kan zo evenmin, binnen één
+  beurt, het model overtuigen om iets blijvends via `remember` op te slaan.
+  Dezelfde bekende beperking als bij Fase 3 geldt (dekt geen multi-beurt-scenario).
+- `search_documents` roept zelf geen `sanitizeExternalContent()` aan — dat
+  gebeurt al centraal in `agent-loop.ts` ná elke tool-uitvoering (zelfde
+  patroon als `web_search`/`web_fetch`), dus documentinhoud met een
+  nagemaakte protocol-marker wordt net zo gestript.
+- Content-hash-dedupe (sha256) voorkomt dat hetzelfde document twee keer
+  wordt toegevoegd; een `ingestInProgress`-vlag staat maar één
+  document-toevoeging tegelijk toe.

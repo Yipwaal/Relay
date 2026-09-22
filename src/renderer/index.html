@@ -13,7 +13,7 @@
     <div id="app">
       <header>
         <h1>Relay</h1>
-        <button id="settings-button" type="button" aria-label="Instellingen">⚙ Geheugen</button>
+        <button id="settings-button" type="button" aria-label="Instellingen">⚙ Instellingen</button>
       </header>
       <main id="messages" aria-live="polite"></main>
       <form id="chat-form">
@@ -23,14 +23,28 @@
     </div>
 
     <dialog id="settings-dialog">
-      <h2>Geheugen</h2>
-      <p class="settings-hint">Feiten die Relay onthoudt en in elk gesprek meestuurt.</p>
-      <p id="settings-error" class="settings-error" hidden></p>
-      <ul id="facts-list"></ul>
-      <form id="add-fact-form">
-        <input type="text" id="new-fact-input" placeholder="Nieuw feit..." maxlength="500" />
-        <button type="submit">Toevoegen</button>
-      </form>
+      <section class="settings-section">
+        <h2>Geheugen</h2>
+        <p class="settings-hint">Feiten die Relay onthoudt en in elk gesprek meestuurt.</p>
+        <p id="settings-error" class="settings-error" hidden></p>
+        <ul id="facts-list"></ul>
+        <form id="add-fact-form">
+          <input type="text" id="new-fact-input" placeholder="Nieuw feit..." maxlength="500" />
+          <button type="submit">Toevoegen</button>
+        </form>
+      </section>
+
+      <section class="settings-section">
+        <h2>Documenten</h2>
+        <p class="settings-hint">Documenten die Relay tijdens een gesprek kan doorzoeken (.txt, .md, .pdf, .docx).</p>
+        <p id="documents-error" class="settings-error" hidden></p>
+        <ul id="documents-list"></ul>
+        <p id="documents-progress" class="documents-progress" hidden></p>
+        <div class="dialog-actions">
+          <button id="add-document-button" type="button">Document toevoegen...</button>
+        </div>
+      </section>
+
       <div class="dialog-actions">
         <button id="close-settings-button" type="button">Sluiten</button>
       </div>
@@ -38,5 +52,6 @@
 
     <script src="./renderer.js"></script>
     <script src="./settings.js"></script>
+    <script src="./documents.js"></script>
   </body>
 </html>

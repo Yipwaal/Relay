@@ -50,6 +50,9 @@ function describeCall(call: ToolCall): string {
   if (call.name === 'remember' && typeof call.args.fact === 'string') {
     return `Onthoudt: "${call.args.fact}"`;
   }
+  if (call.name === 'search_documents' && typeof call.args.query === 'string') {
+    return `Doorzoekt documenten: "${call.args.query}"`;
+  }
   return `Roept tool aan: ${call.name}`;
 }
 
@@ -69,6 +72,15 @@ function describeResult(call: ToolCall, ok: boolean, result: unknown): string {
   }
   if (call.name === 'remember' && asRecord?.stored === true) {
     return 'Feit opgeslagen';
+  }
+  if (call.name === 'search_documents' && Array.isArray(asRecord?.results)) {
+    const results = asRecord.results as unknown[];
+    const documentCount = new Set(
+      results
+        .map((r) => (r && typeof r === 'object' ? (r as Record<string, unknown>).document : undefined))
+        .filter((d): d is string => typeof d === 'string'),
+    ).size;
+    return `${results.length} passage${results.length === 1 ? '' : 's'} uit ${documentCount} document${documentCount === 1 ? '' : 'en'}`;
   }
   return 'Tool-aanroep afgerond';
 }
@@ -99,21 +111,24 @@ async function executeCall(call: ToolCall, tools: Map<string, ToolDefinition>): 
  * toegevoegde berichten terug (assistant + eventuele tool-berichten) zodat de
  * aanroeper (ipc/chat-handler.ts) de renderer-geschiedenis kan bijwerken.
  */
-const REMEMBER_AFTER_WEB_TOOL_MESSAGE =
-  'remember geweigerd: er is deze beurt al web_search/web_fetch gebruikt. Vraag de gebruiker expliciet te ' +
-  'bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
+const REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE =
+  'remember geweigerd: er is deze beurt al web_search/web_fetch/search_documents gebruikt. Vraag de gebruiker ' +
+  'expliciet te bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
+
+const EXTERNAL_CONTENT_TOOLS = new Set(['web_search', 'web_fetch', 'search_documents']);
 
 export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<ChatMessage[]> {
   const turnMessages = [...messages];
   const appended: ChatMessage[] = [];
   const seenCalls = new Set<string>();
-  // Voorkomt dat een manipulatieve webpagina het model binnen dezelfde beurt
-  // laat overtuigen om iets via remember op te slaan — dat zou anders
+  // Voorkomt dat manipulatieve externe content (een webpagina, of — sinds
+  // Fase 4 — een geïndexeerd document) het model binnen dezelfde beurt laat
+  // overtuigen om iets via remember op te slaan — dat zou anders
   // onvoorwaardelijk in élk toekomstig gesprek terugkomen (zie security-review
-  // Fase 3). Dekt niet het multi-beurt-scenario (fetch in beurt 1, remember
-  // in beurt 2): agent-loop houdt bewust geen state tussen beurten bij, zie
-  // README.md.
-  let usedWebToolThisTurn = false;
+  // Fase 3, uitgebreid naar search_documents in Fase 4). Dekt niet het
+  // multi-beurt-scenario (content ophalen in beurt 1, remember in beurt 2):
+  // agent-loop houdt bewust geen state tussen beurten bij, zie README.md.
+  let usedExternalContentThisTurn = false;
 
   // Met 'remember' altijd geregistreerd (zie tools/index.ts) is er nu altijd
   // minstens één tool beschikbaar. Welk pad gekozen wordt hangt dus alleen
@@ -219,13 +234,13 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     }
     seenCalls.add(dedupeKey);
 
-    if (call.name === 'remember' && usedWebToolThisTurn) {
+    if (call.name === 'remember' && usedExternalContentThisTurn) {
       events.onToolCall(describeCall(call));
-      events.onToolResult(`Geweigerd: ${REMEMBER_AFTER_WEB_TOOL_MESSAGE}`, false, REMEMBER_AFTER_WEB_TOOL_MESSAGE);
+      events.onToolResult(`Geweigerd: ${REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE}`, false, REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE);
       const notice = buildToolResultMessage(
         ctx.toolMode,
         call,
-        JSON.stringify({ error: REMEMBER_AFTER_WEB_TOOL_MESSAGE }),
+        JSON.stringify({ error: REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE }),
       );
       turnMessages.push(notice);
       appended.push(notice);
@@ -234,8 +249,8 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
     events.onToolCall(describeCall(call));
     const { ok, result } = await executeCall(call, ctx.tools);
-    if (ok && (call.name === 'web_search' || call.name === 'web_fetch')) {
-      usedWebToolThisTurn = true;
+    if (ok && EXTERNAL_CONTENT_TOOLS.has(call.name)) {
+      usedExternalContentThisTurn = true;
     }
 
     const sanitized = sanitizeExternalContent(JSON.stringify(result));

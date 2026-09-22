@@ -180,6 +180,14 @@ dialog#settings-dialog {
   border-radius: 12px;
   padding: 20px;
   width: min(480px, 90vw);
+  max-height: min(640px, 85vh);
+  overflow-y: auto;
+}
+
+.settings-section + .settings-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bg);
 }
 
 dialog#settings-dialog::backdrop {
@@ -284,4 +292,89 @@ dialog#settings-dialog h2 {
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+#documents-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.document-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.document-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.document-title {
+  word-break: break-word;
+}
+
+.document-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.document-badge {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--error);
+  border: 1px solid var(--error);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.document-row button {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.documents-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.documents-progress {
+  color: var(--accent-dim);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+
+#add-document-button {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#add-document-button:disabled {
+  color: var(--text-dim);
+  cursor: default;
 }

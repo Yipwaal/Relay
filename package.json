@@ -5,7 +5,7 @@
   "description": "Lokale AI-assistent met Ollama (gemma4:12b), web search en memory.",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && cp src/renderer/index.html src/renderer/styles.css dist/renderer/",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && cp src/renderer/index.html src/renderer/styles.css dist/renderer/ && mkdir -p dist/main/documents/__tests__/fixtures && cp src/main/documents/__tests__/fixtures/* dist/main/documents/__tests__/fixtures/",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && cd dist/main && node --test",
@@ -19,6 +19,8 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "dotenv": "^18.0.2"
+    "dotenv": "^18.0.2",
+    "mammoth": "^1.12.3",
+    "pdf-parse": "^2.4.5"
   }
 }

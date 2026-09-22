@@ -5,7 +5,9 @@ import { sanitizeIncomingToolMessages } from '../tools/sanitize';
 import { resolveToolMode } from '../chat/capabilities';
 import { buildSystemPrompt, MAX_MEMORY_CHARS } from '../chat/system-prompt';
 import { runAgentTurn } from '../chat/agent-loop';
+import { createOllamaEmbedder } from '../ollama-embed';
 import type { MemoryStore } from '../memory/store';
+import type { DocumentStore } from '../documents/store';
 import type { ChatMessage, ChatToolCall } from '../../shared/ipc-types';
 
 type IncomingMessage =
@@ -55,10 +57,18 @@ async function handleChatRequest(
   requestId: string,
   incoming: IncomingMessage[],
   memoryStore: MemoryStore,
+  documentStore: DocumentStore,
 ): Promise<void> {
   try {
     const config = loadConfig();
-    const tools = buildToolRegistry({ ollamaApiKey: config.ollamaApiKey, memoryStore });
+    const embedder = createOllamaEmbedder(config.ollamaUrl, config.embedModel);
+    const tools = buildToolRegistry({
+      ollamaApiKey: config.ollamaApiKey,
+      memoryStore,
+      documentStore,
+      embedder,
+      embedModel: config.embedModel,
+    });
     const toolMode = await resolveToolMode(config.ollamaUrl, config.model, config.toolMode);
 
     // Feiten aan het begin van de beurt lezen, niet per agent-loop-iteratie:
@@ -101,12 +111,12 @@ async function handleChatRequest(
   }
 }
 
-export function registerChatHandler(memoryStore: MemoryStore): void {
+export function registerChatHandler(memoryStore: MemoryStore, documentStore: DocumentStore): void {
   ipcMain.on('relay:chat:send', (event: IpcMainEvent, payload: unknown) => {
     if (!isChatSendPayload(payload)) {
       console.error('[relay] ongeldig chat:send-bericht genegeerd');
       return;
     }
-    void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore);
+    void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore, documentStore);
   });
 }

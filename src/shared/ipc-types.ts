@@ -52,3 +52,23 @@ export interface MemoryFact {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface DocumentInfo {
+  id: number;
+  title: string;
+  contentHash: string;
+  charCount: number;
+  chunkCount: number;
+  embedModel: string;
+  embedDims: number;
+  createdAt: number;
+  /** true als embedModel niet meer overeenkomt met de huidig geconfigureerde embedModel — niet meer doorzoekbaar tot het opnieuw wordt toegevoegd. */
+  outdated: boolean;
+}
+
+/** Geen requestId: main staat maar één document-toevoeging tegelijk toe, dus correlatie is niet nodig. */
+export interface DocumentProgressPayload {
+  title: string;
+  done: number;
+  total: number;
+}

@@ -2,8 +2,10 @@ import { app, BrowserWindow } from 'electron';
 import * as path from 'node:path';
 import { registerChatHandler } from './ipc/chat-handler';
 import { registerMemoryHandlers } from './ipc/memory-handler';
-import { openMemoryDb } from './memory/db';
+import { registerDocumentsHandlers } from './ipc/documents-handler';
+import { openRelayDb } from './db';
 import { createMemoryStore } from './memory/store';
+import { createDocumentStore } from './documents/store';
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -23,12 +25,14 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   const dbPath = path.join(app.getPath('userData'), 'relay.db');
-  console.log(`[relay] memory-database: ${dbPath}`);
-  const db = openMemoryDb(dbPath);
+  console.log(`[relay] database: ${dbPath}`);
+  const db = openRelayDb(dbPath);
   const memoryStore = createMemoryStore(db);
+  const documentStore = createDocumentStore(db);
 
-  registerChatHandler(memoryStore);
+  registerChatHandler(memoryStore, documentStore);
   registerMemoryHandlers(memoryStore);
+  registerDocumentsHandlers(documentStore);
   createWindow();
 
   app.on('activate', () => {

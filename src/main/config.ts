@@ -13,6 +13,8 @@ export interface RelayConfig {
   toolMode: ToolModeSetting;
   /** Ollama's context-window (num_ctx). Memory + tool-resultaten kunnen de default snel overschrijden. */
   numCtx: number;
+  /** Model voor document-embeddings (Fase 4), apart te pullen via `ollama pull <model>`. */
+  embedModel: string;
   /** Alleen uit .env (OLLAMA_API_KEY) — nooit in config.json, dat in git staat. */
   ollamaApiKey: string | null;
 }
@@ -25,6 +27,7 @@ interface RawConfig {
   systemPrompt: string;
   toolMode: ToolModeSetting;
   numCtx: number;
+  embedModel: string;
 }
 
 function isToolModeSetting(value: unknown): value is ToolModeSetting {
@@ -40,7 +43,8 @@ function isRelayConfig(value: unknown): value is RawConfig {
     typeof v.systemPrompt === 'string' &&
     isToolModeSetting(v.toolMode) &&
     typeof v.numCtx === 'number' &&
-    v.numCtx > 0
+    v.numCtx > 0 &&
+    typeof v.embedModel === 'string'
   );
 }
 
@@ -87,6 +91,7 @@ export function loadConfig(): RelayConfig {
     systemPrompt: parsed.systemPrompt,
     toolMode: parsed.toolMode,
     numCtx: parsed.numCtx,
+    embedModel: process.env.RELAY_EMBED_MODEL ?? parsed.embedModel,
     ollamaApiKey: process.env.OLLAMA_API_KEY?.trim() || null,
   };
 }

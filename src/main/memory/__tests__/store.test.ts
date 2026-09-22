@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openMemoryDb } from '../db';
+import { openRelayDb } from '../../db';
 import { createMemoryStore } from '../store';
 
 function freshStore() {
-  return createMemoryStore(openMemoryDb(':memory:'));
+  return createMemoryStore(openRelayDb(':memory:'));
 }
 
 test('addFact slaat op en listFacts geeft het terug', () => {

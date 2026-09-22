@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ChatMessage,
   ChunkPayload,
+  DocumentInfo,
+  DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
   MemoryFact,
@@ -42,6 +44,20 @@ contextBridge.exposeInMainWorld('relay', {
     },
     remove(id: number): Promise<void> {
       return ipcRenderer.invoke('relay:memory:delete', id);
+    },
+  },
+  documents: {
+    list(): Promise<DocumentInfo[]> {
+      return ipcRenderer.invoke('relay:documents:list');
+    },
+    add(): Promise<DocumentInfo | null> {
+      return ipcRenderer.invoke('relay:documents:add');
+    },
+    remove(id: number): Promise<void> {
+      return ipcRenderer.invoke('relay:documents:delete', id);
+    },
+    onProgress(callback: (payload: DocumentProgressPayload) => void): void {
+      ipcRenderer.on('relay:documents:progress', (_event, payload: DocumentProgressPayload) => callback(payload));
     },
   },
 });

@@ -1,9 +1,17 @@
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
-  /** Verplicht wanneer role === 'tool': welke tool dit resultaat opleverde. */
-  toolName?: string;
+export interface ChatToolCall {
+  name: string;
+  args: Record<string, unknown>;
 }
+
+/**
+ * Discriminated union i.p.v. losse optionele velden: dwingt af dat
+ * toolName verplicht is bij role 'tool', en dat toolCalls alleen op een
+ * assistant-bericht kan staan (native tool_calls die naar Ollama teruggaan).
+ */
+export type ChatMessage =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ChatToolCall[] }
+  | { role: 'tool'; content: string; toolName: string };
 
 export interface ChunkPayload {
   requestId: string;
@@ -21,6 +29,8 @@ export interface ToolResultPayload {
   /** Kant-en-klare, mensleesbare tekst, bv. '3 resultaten gevonden'. */
   summary: string;
   ok: boolean;
+  /** De exacte (gesaneerde) inhoud die het model te zien krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
+  preview: string;
 }
 
 export interface DonePayload {

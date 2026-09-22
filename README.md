@@ -125,3 +125,23 @@ De providerkeuze zit achter een `SearchProvider`-interface
 (`src/main/tools/web-search.ts`) met vandaag precies één implementatie — een
 latere SearXNG-optie kan ernaast bestaan zonder de tool-calling-loop te
 hoeven aanpassen.
+
+### Zichtbaarheid en restrisico's (security-review Fase 2)
+
+- Elke tool-aanroep en het volledige (gesaneerde) resultaat worden in de UI
+  getoond vóórdat het model verdergaat — niet alleen een samenvatting, maar
+  ook de exacte tekst die het model te zien krijgt (klapbaar/scrollbaar blok
+  onder de samenvatting).
+- Opgehaalde webinhoud wordt nooit als instructie behandeld: de system prompt
+  waarschuwt hier expliciet voor, en `sanitize.ts` strip nagemaakte
+  protocol-markers uit élk tool-resultaat, inclusief tool-berichten die de
+  renderer als geschiedenis meestuurt (niet alleen vers uitgevoerde
+  aanroepen).
+- **Resterend risico**: `web_fetch` heeft geen bestemmingsbeperking — een
+  overtuigend gemanipuleerde pagina zou het model in theorie kunnen aanzetten
+  tot een `web_fetch` naar een door de aanvaller gekozen URL (bv. met
+  gespreksdata in de querystring). Dit is een inherent risico van
+  tool-calling met een lokaal model, geen concrete bug; een eventuele
+  URL-allowlist (bv. alleen URL's uit een `web_search`-resultaat van dezelfde
+  beurt) is een structurele keuze voor een latere iteratie, via de
+  `architect`-subagent.

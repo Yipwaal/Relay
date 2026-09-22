@@ -1,30 +1,41 @@
 import { ipcMain, type IpcMainEvent, type WebContents } from 'electron';
 import { loadConfig } from '../config';
 import { buildToolRegistry } from '../tools';
+import { sanitizeIncomingToolMessages } from '../tools/sanitize';
 import { resolveToolMode } from '../chat/capabilities';
 import { buildToolSystemAppendix } from '../chat/tool-protocol';
 import { runAgentTurn } from '../chat/agent-loop';
-import type { ChatMessage } from '../../shared/ipc-types';
+import type { ChatMessage, ChatToolCall } from '../../shared/ipc-types';
 
-interface IncomingMessage {
-  role: 'user' | 'assistant' | 'tool';
-  content: string;
-  toolName?: string;
-}
+type IncomingMessage =
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string; toolCalls?: ChatToolCall[] }
+  | { role: 'tool'; content: string; toolName: string };
 
 interface ChatSendPayload {
   requestId: string;
   messages: IncomingMessage[];
 }
 
+function isChatToolCall(value: unknown): value is ChatToolCall {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.name === 'string' && typeof v.args === 'object' && v.args !== null;
+}
+
 function isIncomingMessage(value: unknown): value is IncomingMessage {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  if (v.role !== 'user' && v.role !== 'assistant' && v.role !== 'tool') return false;
   if (typeof v.content !== 'string') return false;
-  // Een tool-bericht is alleen geldig mét toolName; renderer kan geen 'system'-rol injecteren.
-  if (v.role === 'tool' && typeof v.toolName !== 'string') return false;
-  return true;
+
+  // Renderer kan geen 'system'-rol injecteren (die voegt alleen main zelf toe).
+  if (v.role === 'user') return true;
+  if (v.role === 'tool') return typeof v.toolName === 'string';
+  if (v.role === 'assistant') {
+    if (v.toolCalls === undefined) return true;
+    return Array.isArray(v.toolCalls) && v.toolCalls.every(isChatToolCall);
+  }
+  return false;
 }
 
 function isChatSendPayload(value: unknown): value is ChatSendPayload {
@@ -49,7 +60,10 @@ async function handleChatRequest(sender: WebContents, requestId: string, incomin
     );
     const systemPrompt = systemAppendix ? `${config.systemPrompt}\n\n${systemAppendix}` : config.systemPrompt;
 
-    const turnMessages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...incoming];
+    const turnMessages: ChatMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...sanitizeIncomingToolMessages(incoming),
+    ];
 
     console.log(
       `[relay] chat request model=${config.model} toolMode=${toolMode} tools=${tools.size} messages=${turnMessages.length}`,
@@ -61,7 +75,7 @@ async function handleChatRequest(sender: WebContents, requestId: string, incomin
       {
         onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
         onToolCall: (label) => safeSend(sender, 'relay:chat:tool-call', { requestId, label }),
-        onToolResult: (summary, ok) => safeSend(sender, 'relay:chat:tool-result', { requestId, summary, ok }),
+        onToolResult: (summary, ok, preview) => safeSend(sender, 'relay:chat:tool-result', { requestId, summary, ok, preview }),
       },
     );
 

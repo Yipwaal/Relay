@@ -20,6 +20,30 @@ function appendMessage(role: DisplayRole, text: string): HTMLElement {
   return bubble;
 }
 
+/**
+ * Toont niet alleen een samenvatting maar ook de exacte (gesaneerde) inhoud
+ * die het model krijgt, zodat de gebruiker kan controleren wat een
+ * tool-aanroep daadwerkelijk opleverde vóórdat het model erop reageert.
+ */
+function appendToolResult(role: 'tool-result' | 'tool-error', summary: string, preview: string): void {
+  const bubble = document.createElement('div');
+  bubble.className = `message message-${role}`;
+
+  const summaryEl = document.createElement('div');
+  summaryEl.textContent = summary;
+  bubble.appendChild(summaryEl);
+
+  if (preview.trim().length > 0) {
+    const previewEl = document.createElement('pre');
+    previewEl.className = 'tool-preview';
+    previewEl.textContent = preview;
+    bubble.appendChild(previewEl);
+  }
+
+  messagesEl.appendChild(bubble);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
 /** Sluit het huidige streaming-segment af (en verwijdert een leeg gebleven bubbel, bv. vóór een tool-aanroep). */
 function finishCurrentSegment(): void {
   if (currentSegmentBubble !== null && currentSegmentText.length === 0) {
@@ -78,7 +102,7 @@ window.relay.onToolCall((payload) => {
 window.relay.onToolResult((payload) => {
   if (payload.requestId !== currentRequestId) return;
   finishCurrentSegment();
-  appendMessage(payload.ok ? 'tool-result' : 'tool-error', payload.summary);
+  appendToolResult(payload.ok ? 'tool-result' : 'tool-error', payload.summary, payload.preview);
 });
 
 window.relay.onDone((payload) => {

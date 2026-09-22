@@ -1,11 +1,9 @@
-import type { ChatMessage } from '../../shared/ipc-types';
+import type { ChatMessage, ChatToolCall } from '../../shared/ipc-types';
 import type { NativeToolCall } from '../ollama-client';
 import type { ToolMode } from './capabilities';
 
-export interface ToolCall {
-  name: string;
-  args: Record<string, unknown>;
-}
+/** Alias van het gedeelde IPC-type — zelfde vorm, domeinspecifieke naam in de chat-laag. */
+export type ToolCall = ChatToolCall;
 
 export type PromptToolCallResult =
   | { type: 'none' }

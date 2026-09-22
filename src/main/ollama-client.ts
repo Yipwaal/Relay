@@ -40,13 +40,25 @@ export function parseOllamaChunk(line: string): OllamaChatChunk {
 }
 
 /**
- * Vertaalt onze interne ChatMessage (role 'tool' + toolName) naar het
- * wire-formaat dat Ollama verwacht (role 'tool' + tool_name).
+ * Vertaalt onze interne ChatMessage naar het wire-formaat dat Ollama
+ * verwacht: role 'tool' wordt tool_name, en een assistant-bericht met
+ * toolCalls (native tool-aanroep uit een vorige iteratie) krijgt zijn
+ * tool_calls-veld terug zodat Ollama de conversatie correct kan volgen.
  */
 function toOllamaMessages(messages: ChatMessage[]): unknown[] {
-  return messages.map((m) =>
-    m.role === 'tool' ? { role: m.role, content: m.content, tool_name: m.toolName } : { role: m.role, content: m.content },
-  );
+  return messages.map((m) => {
+    if (m.role === 'tool') {
+      return { role: m.role, content: m.content, tool_name: m.toolName };
+    }
+    if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+      return {
+        role: m.role,
+        content: m.content,
+        tool_calls: m.toolCalls.map((tc) => ({ function: { name: tc.name, arguments: tc.args } })),
+      };
+    }
+    return { role: m.role, content: m.content };
+  });
 }
 
 function isAbortError(error: unknown): boolean {

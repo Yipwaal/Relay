@@ -108,6 +108,20 @@ header h1 {
   font-style: normal;
 }
 
+.tool-preview {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12px;
+  font-style: normal;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: var(--panel);
+  border-radius: 6px;
+}
+
 #chat-form {
   display: flex;
   gap: 8px;

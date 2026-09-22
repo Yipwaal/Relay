@@ -19,7 +19,8 @@ export interface AgentContext {
 export interface AgentEvents {
   onToken(text: string): void;
   onToolCall(label: string): void;
-  onToolResult(summary: string, ok: boolean): void;
+  /** preview: de exacte (gesaneerde) inhoud die het model krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
+  onToolResult(summary: string, ok: boolean, preview: string): void;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -103,9 +104,11 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     let pendingCall: ToolCall | null = null;
-    let assistantText = '';
+    let assistantMessage: ChatMessage;
 
     if (usePlainStreaming) {
+      let assistantText = '';
+
       await streamChat(
         { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas },
         {
@@ -120,6 +123,16 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           },
         },
       );
+
+      // Native tool_calls horen bij het assistant-bericht zelf terug de
+      // geschiedenis in, anders mist Ollama bij de volgende iteratie de
+      // context waarom er een tool-resultaat volgt.
+      if (pendingCall) {
+        const call: ToolCall = pendingCall;
+        assistantMessage = { role: 'assistant', content: assistantText, toolCalls: [{ name: call.name, args: call.args }] };
+      } else {
+        assistantMessage = { role: 'assistant', content: assistantText };
+      }
     } else {
       // Prompt-fallback: niet live streamen naar de UI vóórdat we weten of dit
       // een tool-aanroep is (anders lekt het rauwe JSON-blok in de chat).
@@ -153,19 +166,21 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           JSON.stringify({ error: malformedError }),
         );
         events.onToolCall('Onherkenbare tool-aanroep');
-        events.onToolResult(`Mislukt: ${malformedError}`, false);
+        events.onToolResult(`Mislukt: ${malformedError}`, false, malformedError);
         turnMessages.push(notice);
         appended.push(notice);
         continue;
       }
 
+      // rawBuffer (incl. een eventueel tool-call-blok) blijft altijd de echte
+      // geschiedenis in — alleen de live UI (events.onToken) laat het blok
+      // zelf weg, zodat de gebruiker nooit rauwe protocol-JSON te zien krijgt.
       if (!pendingCall) {
-        assistantText = rawBuffer;
         events.onToken(rawBuffer);
       }
+      assistantMessage = { role: 'assistant', content: rawBuffer };
     }
 
-    const assistantMessage: ChatMessage = { role: 'assistant', content: assistantText };
     turnMessages.push(assistantMessage);
     appended.push(assistantMessage);
 
@@ -174,11 +189,9 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
     const dedupeKey = `${call.name}:${JSON.stringify(call.args)}`;
     if (seenCalls.has(dedupeKey)) {
-      const notice = buildToolResultMessage(
-        ctx.toolMode,
-        call,
-        JSON.stringify({ error: 'Deze tool-aanroep is al eerder met dezelfde argumenten uitgevoerd.' }),
-      );
+      const duplicateNotice = 'Deze tool-aanroep is al eerder met dezelfde argumenten uitgevoerd.';
+      const notice = buildToolResultMessage(ctx.toolMode, call, JSON.stringify({ error: duplicateNotice }));
+      events.onToolResult(`Overgeslagen: ${duplicateNotice}`, false, duplicateNotice);
       turnMessages.push(notice);
       appended.push(notice);
       break;
@@ -187,9 +200,10 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
     events.onToolCall(describeCall(call));
     const { ok, result } = await executeCall(call, ctx.tools);
-    events.onToolResult(describeResult(call, ok, result), ok);
 
     const sanitized = sanitizeExternalContent(JSON.stringify(result));
+    events.onToolResult(describeResult(call, ok, result), ok, sanitized);
+
     const toolResultMessage = buildToolResultMessage(ctx.toolMode, call, sanitized);
     turnMessages.push(toolResultMessage);
     appended.push(toolResultMessage);

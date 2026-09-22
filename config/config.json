@@ -1,5 +1,6 @@
 {
   "model": "gemma4:12b",
   "ollamaUrl": "http://localhost:11434",
-  "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent. Antwoord kort en duidelijk."
+  "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent. Antwoord kort en duidelijk.",
+  "toolMode": "auto"
 }

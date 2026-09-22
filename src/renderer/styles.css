@@ -73,6 +73,41 @@ header h1 {
   color: var(--error);
 }
 
+.message-tool-call,
+.message-tool-result,
+.message-tool-error {
+  align-self: flex-start;
+  max-width: 85%;
+  font-size: 13px;
+  font-style: italic;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-dim);
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.message-tool-call::before {
+  content: "🔍 ";
+  font-style: normal;
+}
+
+.message-tool-result::before {
+  content: "✓ ";
+  font-style: normal;
+  color: var(--accent);
+}
+
+.message-tool-error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.message-tool-error::before {
+  content: "⚠ ";
+  font-style: normal;
+}
+
 #chat-form {
   display: flex;
   gap: 8px;

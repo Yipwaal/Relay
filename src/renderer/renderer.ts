@@ -3,19 +3,30 @@ const formEl = document.getElementById('chat-form') as HTMLFormElement;
 const inputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
 const sendButtonEl = document.getElementById('send-button') as HTMLButtonElement;
 
+type DisplayRole = 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'tool-error';
+
 const conversation: RelayChatMessage[] = [];
 
 let currentRequestId: string | null = null;
-let currentAssistantBubble: HTMLElement | null = null;
-let currentAssistantText = '';
+let currentSegmentBubble: HTMLElement | null = null;
+let currentSegmentText = '';
 
-function appendMessage(role: 'user' | 'assistant', text: string): HTMLElement {
+function appendMessage(role: DisplayRole, text: string): HTMLElement {
   const bubble = document.createElement('div');
   bubble.className = `message message-${role}`;
   bubble.textContent = text;
   messagesEl.appendChild(bubble);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return bubble;
+}
+
+/** Sluit het huidige streaming-segment af (en verwijdert een leeg gebleven bubbel, bv. vóór een tool-aanroep). */
+function finishCurrentSegment(): void {
+  if (currentSegmentBubble !== null && currentSegmentText.length === 0) {
+    currentSegmentBubble.remove();
+  }
+  currentSegmentBubble = null;
+  currentSegmentText = '';
 }
 
 function setFormDisabled(disabled: boolean): void {
@@ -34,8 +45,8 @@ function handleSubmit(event: SubmitEvent): void {
   inputEl.value = '';
   setFormDisabled(true);
 
-  currentAssistantText = '';
-  currentAssistantBubble = appendMessage('assistant', '');
+  currentSegmentBubble = null;
+  currentSegmentText = '';
   currentRequestId = window.relay.sendMessage(conversation);
 }
 
@@ -49,28 +60,45 @@ inputEl.addEventListener('keydown', (event: KeyboardEvent) => {
 });
 
 window.relay.onChunk((payload) => {
-  if (payload.requestId !== currentRequestId || currentAssistantBubble === null) return;
-  currentAssistantText += payload.token;
-  currentAssistantBubble.textContent = currentAssistantText;
+  if (payload.requestId !== currentRequestId) return;
+  if (currentSegmentBubble === null) {
+    currentSegmentBubble = appendMessage('assistant', '');
+  }
+  currentSegmentText += payload.token;
+  currentSegmentBubble.textContent = currentSegmentText;
   messagesEl.scrollTop = messagesEl.scrollHeight;
+});
+
+window.relay.onToolCall((payload) => {
+  if (payload.requestId !== currentRequestId) return;
+  finishCurrentSegment();
+  appendMessage('tool-call', payload.label);
+});
+
+window.relay.onToolResult((payload) => {
+  if (payload.requestId !== currentRequestId) return;
+  finishCurrentSegment();
+  appendMessage(payload.ok ? 'tool-result' : 'tool-error', payload.summary);
 });
 
 window.relay.onDone((payload) => {
   if (payload.requestId !== currentRequestId) return;
-  conversation.push({ role: 'assistant', content: currentAssistantText });
+  finishCurrentSegment();
+  conversation.push(...payload.appended);
   currentRequestId = null;
-  currentAssistantBubble = null;
   setFormDisabled(false);
   inputEl.focus();
 });
 
 window.relay.onError((payload) => {
   if (payload.requestId !== currentRequestId) return;
-  if (currentAssistantBubble !== null) {
-    currentAssistantBubble.textContent = `Fout: ${payload.message}`;
-    currentAssistantBubble.classList.add('message-error');
+  if (currentSegmentBubble === null) {
+    currentSegmentBubble = appendMessage('assistant', '');
   }
+  currentSegmentBubble.textContent = `Fout: ${payload.message}`;
+  currentSegmentBubble.classList.add('message-error');
+  currentSegmentBubble = null;
+  currentSegmentText = '';
   currentRequestId = null;
-  currentAssistantBubble = null;
   setFormDisabled(false);
 });

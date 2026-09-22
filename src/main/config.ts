@@ -4,21 +4,38 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+export type ToolModeSetting = 'auto' | 'native' | 'prompt';
+
 export interface RelayConfig {
   model: string;
   ollamaUrl: string;
   systemPrompt: string;
+  toolMode: ToolModeSetting;
+  /** Alleen uit .env (OLLAMA_API_KEY) — nooit in config.json, dat in git staat. */
+  ollamaApiKey: string | null;
 }
 
 const CONFIG_PATH = path.join(__dirname, '..', '..', 'config', 'config.json');
 
-function isRelayConfig(value: unknown): value is RelayConfig {
+interface RawConfig {
+  model: string;
+  ollamaUrl: string;
+  systemPrompt: string;
+  toolMode: ToolModeSetting;
+}
+
+function isToolModeSetting(value: unknown): value is ToolModeSetting {
+  return value === 'auto' || value === 'native' || value === 'prompt';
+}
+
+function isRelayConfig(value: unknown): value is RawConfig {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.model === 'string' &&
     typeof v.ollamaUrl === 'string' &&
-    typeof v.systemPrompt === 'string'
+    typeof v.systemPrompt === 'string' &&
+    isToolModeSetting(v.toolMode)
   );
 }
 
@@ -63,5 +80,7 @@ export function loadConfig(): RelayConfig {
     model: process.env.RELAY_MODEL ?? parsed.model,
     ollamaUrl,
     systemPrompt: parsed.systemPrompt,
+    toolMode: parsed.toolMode,
+    ollamaApiKey: process.env.OLLAMA_API_KEY?.trim() || null,
   };
 }

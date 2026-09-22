@@ -71,6 +71,8 @@ export interface StreamChatOptions {
   messages: ChatMessage[];
   tools?: ToolSchema[];
   signal?: AbortSignal;
+  /** Ollama's context-window (num_ctx). Zie config.ts — memory + tool-resultaten kunnen de default snel overschrijden. */
+  numCtx?: number;
 }
 
 export interface StreamChatHandlers {
@@ -85,10 +87,13 @@ export interface StreamChatHandlers {
  * behandeld, niet als fout.
  */
 export async function streamChat(options: StreamChatOptions, handlers: StreamChatHandlers): Promise<void> {
-  const { baseUrl, model, messages, tools, signal } = options;
+  const { baseUrl, model, messages, tools, signal, numCtx } = options;
   const body: Record<string, unknown> = { model, messages: toOllamaMessages(messages), stream: true };
   if (tools && tools.length > 0) {
     body.tools = tools;
+  }
+  if (typeof numCtx === 'number') {
+    body.options = { num_ctx: numCtx };
   }
 
   let response: Response;

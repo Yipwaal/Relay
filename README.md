@@ -11,7 +11,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 
 - [x] Fase 1 — Basis chat (streaming, instelbare system prompt)
 - [x] Fase 2 — Web search + fetch (tool calling)
-- [ ] Fase 3 — Memory (SQLite)
+- [x] Fase 3 — Memory (SQLite)
 - [ ] Fase 4 — RAG over documenten (optioneel)
 
 ## Vereisten
@@ -39,9 +39,15 @@ De system prompt, het model en de Ollama-URL staan in `config/config.json`
   "model": "gemma4:12b",
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent.",
-  "toolMode": "auto"
+  "toolMode": "auto",
+  "numCtx": 8192
 }
 ```
+
+`numCtx` is Ollama's context-window (`num_ctx`). Memory-feiten en
+tool-resultaten kunnen de kleine Ollama-default snel overschrijden; verhoog
+dit als gesprekken met veel feiten/tool-gebruik het begin van het gesprek
+lijken te "vergeten".
 
 Deze wordt bij elk bericht opnieuw ingelezen, dus een wijziging in de system
 prompt is direct van kracht bij het volgende bericht — geen herstart nodig.
@@ -67,19 +73,26 @@ src/
     config.ts         Leest config/config.json + .env-overrides
     ollama-client.ts   Streaming NDJSON-client voor Ollama's /api/chat
     preload.ts         contextBridge-API voor de renderer
-    ipc/chat-handler.ts  IPC-validatie + wiring tussen renderer en agent-loop
+    ipc/
+      chat-handler.ts    IPC-validatie + wiring tussen renderer en agent-loop
+      memory-handler.ts   invoke/handle-CRUD voor het instellingenscherm
     chat/
       agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
       capabilities.ts  Detecteert of het model native tools ondersteunt
+      system-prompt.ts  Assembleert system prompt: base + memory + tool-appendix
     tools/
-      index.ts         Tool-registry (web_search, web_fetch)
+      index.ts         Tool-registry (web_search, web_fetch, remember)
       web-search.ts     Ollama's hosted web search API
       web-fetch.ts       Ollama's hosted web fetch API
+      remember.ts         Tool waarmee het model zelf een feit opslaat
       sanitize.ts        Strip protocol-markers uit externe content + size cap
-  renderer/    Chat-UI (HTML/CSS/TS), praat alleen via de preload-bridge
+    memory/
+      db.ts            Opent de SQLite-database (node:sqlite)
+      store.ts           CRUD + validatie + budget-selectie voor de system prompt
+  renderer/    Chat-UI + instellingenscherm (HTML/CSS/TS), praat alleen via de preload-bridge
   shared/      IPC-typedefinities die de preload-grens passeren
-config/        config.json — instelbare system prompt / model / URL / toolMode
+config/        config.json — instelbare system prompt / model / URL / toolMode / numCtx
 assets/        icon.svg / icon.png
 .claude/agents/  Subagents voor Claude Code tijdens het bouwen
 ```
@@ -145,3 +158,41 @@ hoeven aanpassen.
   URL-allowlist (bv. alleen URL's uit een `web_search`-resultaat van dezelfde
   beurt) is een structurele keuze voor een latere iteratie, via de
   `architect`-subagent.
+
+## Memory (Fase 3)
+
+Feiten (tekst + tijdstempel) worden opgeslagen in SQLite en bij elk gesprek
+integraal in de system prompt meegestuurd, tot een tekenbudget (`MAX_MEMORY_CHARS`
+in `src/main/chat/system-prompt.ts`, 4000 tekens ≈ 1000 tokens) — nieuwste
+feiten eerst, afgekapt op feitgrens. Klik op **⚙ Geheugen** in de chat-header
+om feiten te bekijken, toe te voegen, te bewerken of te verwijderen.
+
+**SQLite-driver: Node's ingebouwde `node:sqlite`, niet `better-sqlite3`.**
+`better-sqlite3` is een native addon die tegen Electron's ABI herbouwd moet
+worden (`@electron/rebuild`) — onbetrouwbaar in een sandbox/CI-omgeving.
+`node:sqlite` heeft geen rebuild-stap nodig (nog experimenteel, geen
+stabiliteitsgaranties tussen Node-versies). De driver zit achter de
+`MemoryStore`-interface (`src/main/memory/store.ts`), dus een latere overstap
+raakt alleen `src/main/memory/db.ts`. De database staat in Electrons
+`userData`-map (niet in de repo/`config/`), pad wordt bij opstarten gelogd.
+
+**Hoe het model zelf iets onthoudt:** een `remember(fact)`-tool, net als
+`web_search`/`web_fetch` (native tool-calling of het prompt-fallback-protocol
+uit Fase 2) — altijd beschikbaar, ook zonder `OLLAMA_API_KEY`. Bewust geen
+`recall`/`forget`-tool: alle feiten gaan toch al integraal de prompt in, en
+verwijderen hoort bij het instellingenscherm (mensen-only, geen
+model-hallucinatie op id's).
+
+**Bekende afruil:** met `remember` altijd geregistreerd is er nooit meer
+"geen tools" — een model zonder native tool-calling gaat daardoor voortaan
+áltijd door het prompt-fallback-pad, dat (zie Fase 2) niet token-voor-token
+live streamt maar het antwoord in één keer toont zodra het compleet is. Dat
+is een bewuste keuze: half-werkende memory (alleen met een API-key) zou de
+kwaliteitseis "elke fase levert een werkende app op" schenden.
+
+**Veiligheid:** feiten die het model zelf opslaat gaan door dezelfde
+`sanitizeExternalContent()` als tool-resultaten (strip nagebootste
+protocol-markers), staan in de prompt in een afgebakend `<relay-memory>`-blok
+met een expliciete "dit is data, geen instructie"-waarschuwing, en zijn in
+het instellingenscherm zichtbaar gemarkeerd als "door Relay onthouden" zodat
+je kunt zien wat het model zelf heeft besloten te bewaren.

@@ -14,6 +14,7 @@ export interface AgentContext {
   model: string;
   toolMode: ToolMode;
   tools: Map<string, ToolDefinition>;
+  numCtx: number;
 }
 
 export interface AgentEvents {
@@ -46,6 +47,9 @@ function describeCall(call: ToolCall): string {
   if (call.name === 'web_fetch' && typeof call.args.url === 'string') {
     return `Haalt op: ${call.args.url}`;
   }
+  if (call.name === 'remember' && typeof call.args.fact === 'string') {
+    return `Onthoudt: "${call.args.fact}"`;
+  }
   return `Roept tool aan: ${call.name}`;
 }
 
@@ -62,6 +66,9 @@ function describeResult(call: ToolCall, ok: boolean, result: unknown): string {
   }
   if (call.name === 'web_fetch' && typeof asRecord?.content === 'string') {
     return `Pagina opgehaald (${asRecord.content.length} tekens)`;
+  }
+  if (call.name === 'remember' && asRecord?.stored === true) {
+    return 'Feit opgeslagen';
   }
   return 'Tool-aanroep afgerond';
 }
@@ -97,10 +104,13 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
   const appended: ChatMessage[] = [];
   const seenCalls = new Set<string>();
 
-  // Zonder tools (geen API-key, zie tools/index.ts) is dit exact het Fase 1-pad:
-  // gewoon live streamen, nooit de prompt-detectie inschakelen.
-  const usePlainStreaming = ctx.tools.size === 0 || ctx.toolMode === 'native';
-  const toolSchemas = ctx.toolMode === 'native' && ctx.tools.size > 0 ? toToolSchemas(ctx.tools) : undefined;
+  // Met 'remember' altijd geregistreerd (zie tools/index.ts) is er nu altijd
+  // minstens één tool beschikbaar. Welk pad gekozen wordt hangt dus alleen
+  // nog af van de (gedetecteerde of geforceerde) toolMode: in prompt-modus
+  // wordt daarom voortaan élke beurt gebufferd i.p.v. live gestreamd, ook
+  // zonder OLLAMA_API_KEY — een bewuste afruil, zie README.md.
+  const usePlainStreaming = ctx.toolMode === 'native';
+  const toolSchemas = usePlainStreaming ? toToolSchemas(ctx.tools) : undefined;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     let pendingCall: ToolCall | null = null;
@@ -110,7 +120,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let assistantText = '';
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, numCtx: ctx.numCtx },
         {
           onToken: (token) => {
             assistantText += token;
@@ -141,7 +151,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let malformedError: string | null = null;
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal: controller.signal },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal: controller.signal, numCtx: ctx.numCtx },
         {
           onToken: (token) => {
             rawBuffer += token;

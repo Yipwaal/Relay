@@ -7,7 +7,7 @@ const MAX_TOOL_RESULT_CHARS = 8000;
  * uit externe content vóórdat die een bericht in gaat.
  */
 const SENTINEL_PATTERN = /```relay_tool_call[\s\S]*?```/gi;
-const WRAPPER_TAG_PATTERN = /<\/?relay-tool-result[^>]*>/gi;
+const WRAPPER_TAG_PATTERN = /<\/?relay-(tool-result|memory)[^>]*>/gi;
 
 /**
  * Laatste verdedigingslinie voor alle tool-resultaten (web_search + web_fetch)
@@ -18,7 +18,7 @@ const WRAPPER_TAG_PATTERN = /<\/?relay-tool-result[^>]*>/gi;
 export function sanitizeExternalContent(text: string): string {
   const stripped = text
     .replace(SENTINEL_PATTERN, '[verwijderd: leek op een tool-aanroep in opgehaalde inhoud]')
-    .replace(WRAPPER_TAG_PATTERN, '[verwijderd: leek op een tool-resultaat-marker in opgehaalde inhoud]');
+    .replace(WRAPPER_TAG_PATTERN, '[verwijderd: leek op een protocol-marker (tool-resultaat/memory) in opgehaalde inhoud]');
 
   return stripped.length > MAX_TOOL_RESULT_CHARS
     ? `${stripped.slice(0, MAX_TOOL_RESULT_CHARS)}\n[...ingekort...]`

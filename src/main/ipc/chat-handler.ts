@@ -3,8 +3,9 @@ import { loadConfig } from '../config';
 import { buildToolRegistry } from '../tools';
 import { sanitizeIncomingToolMessages } from '../tools/sanitize';
 import { resolveToolMode } from '../chat/capabilities';
-import { buildToolSystemAppendix } from '../chat/tool-protocol';
+import { buildSystemPrompt, MAX_MEMORY_CHARS } from '../chat/system-prompt';
 import { runAgentTurn } from '../chat/agent-loop';
+import type { MemoryStore } from '../memory/store';
 import type { ChatMessage, ChatToolCall } from '../../shared/ipc-types';
 
 type IncomingMessage =
@@ -49,16 +50,28 @@ function safeSend(sender: WebContents, channel: string, payload: unknown): void 
   sender.send(channel, payload);
 }
 
-async function handleChatRequest(sender: WebContents, requestId: string, incoming: IncomingMessage[]): Promise<void> {
+async function handleChatRequest(
+  sender: WebContents,
+  requestId: string,
+  incoming: IncomingMessage[],
+  memoryStore: MemoryStore,
+): Promise<void> {
   try {
     const config = loadConfig();
-    const tools = buildToolRegistry(config.ollamaApiKey);
+    const tools = buildToolRegistry({ ollamaApiKey: config.ollamaApiKey, memoryStore });
     const toolMode = await resolveToolMode(config.ollamaUrl, config.model, config.toolMode);
-    const systemAppendix = buildToolSystemAppendix(
+
+    // Feiten aan het begin van de beurt lezen, niet per agent-loop-iteratie:
+    // roept het model binnen deze beurt zelf remember aan, dan verandert de
+    // system prompt van turnMessages[0] niet meer terwijl de loop bezig is —
+    // dat nieuwe feit staat pas vanaf de volgende beurt in de system prompt.
+    const facts = memoryStore.selectFactsForPrompt(MAX_MEMORY_CHARS);
+    const systemPrompt = buildSystemPrompt({
+      base: config.systemPrompt,
+      facts,
       toolMode,
-      [...tools.values()].map((t) => ({ name: t.name, description: t.description })),
-    );
-    const systemPrompt = systemAppendix ? `${config.systemPrompt}\n\n${systemAppendix}` : config.systemPrompt;
+      tools: [...tools.values()].map((t) => ({ name: t.name, description: t.description })),
+    });
 
     const turnMessages: ChatMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -66,11 +79,12 @@ async function handleChatRequest(sender: WebContents, requestId: string, incomin
     ];
 
     console.log(
-      `[relay] chat request model=${config.model} toolMode=${toolMode} tools=${tools.size} messages=${turnMessages.length}`,
+      `[relay] chat request model=${config.model} toolMode=${toolMode} tools=${tools.size} ` +
+        `facts=${facts.facts.length} messages=${turnMessages.length}`,
     );
 
     const appended = await runAgentTurn(
-      { ollamaUrl: config.ollamaUrl, model: config.model, toolMode, tools },
+      { ollamaUrl: config.ollamaUrl, model: config.model, toolMode, tools, numCtx: config.numCtx },
       turnMessages,
       {
         onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
@@ -87,12 +101,12 @@ async function handleChatRequest(sender: WebContents, requestId: string, incomin
   }
 }
 
-export function registerChatHandler(): void {
+export function registerChatHandler(memoryStore: MemoryStore): void {
   ipcMain.on('relay:chat:send', (event: IpcMainEvent, payload: unknown) => {
     if (!isChatSendPayload(payload)) {
       console.error('[relay] ongeldig chat:send-bericht genegeerd');
       return;
     }
-    void handleChatRequest(event.sender, payload.requestId, payload.messages);
+    void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore);
   });
 }

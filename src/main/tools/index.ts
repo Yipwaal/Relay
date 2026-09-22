@@ -1,9 +1,11 @@
 import type { ToolSchema } from '../ollama-client';
+import type { MemoryStore } from '../memory/store';
 import { createOllamaSearchProvider } from './web-search';
 import { fetchWebPage } from './web-fetch';
+import { createRememberTool } from './remember';
 
 export interface ToolDefinition {
-  name: 'web_search' | 'web_fetch';
+  name: 'web_search' | 'web_fetch' | 'remember';
   description: string;
   parameters: Record<string, unknown>;
   execute(args: Record<string, unknown>): Promise<unknown>;
@@ -19,15 +21,23 @@ function requireStringArg(args: Record<string, unknown>, key: string): string {
 
 let loggedMissingKey = false;
 
+export interface ToolRegistryDeps {
+  ollamaApiKey: string | null;
+  memoryStore: MemoryStore;
+}
+
 /**
- * Bouwt de tool-registry. Zonder OLLAMA_API_KEY zijn er geen tools
- * beschikbaar — Relay gedraagt zich dan als in Fase 1 (gewone chat, geen
- * tools-veld meegestuurd), met één keer een duidelijke console-melding.
+ * Bouwt de tool-registry. 'remember' is altijd beschikbaar (Fase 3 werkt
+ * zonder verdere setup). web_search/web_fetch vereisen OLLAMA_API_KEY — zonder
+ * key blijven die twee uitgeschakeld, met één keer een duidelijke
+ * console-melding, en draait de rest van de app gewoon door.
  */
-export function buildToolRegistry(apiKey: string | null): Map<string, ToolDefinition> {
+export function buildToolRegistry(deps: ToolRegistryDeps): Map<string, ToolDefinition> {
   const registry = new Map<string, ToolDefinition>();
 
-  if (!apiKey) {
+  registry.set('remember', createRememberTool(deps.memoryStore));
+
+  if (!deps.ollamaApiKey) {
     if (!loggedMissingKey) {
       console.log('[relay] OLLAMA_API_KEY ontbreekt — web_search/web_fetch tools zijn uitgeschakeld (zie .env.example)');
       loggedMissingKey = true;
@@ -35,6 +45,7 @@ export function buildToolRegistry(apiKey: string | null): Map<string, ToolDefini
     return registry;
   }
 
+  const apiKey = deps.ollamaApiKey;
   const searchProvider = createOllamaSearchProvider(apiKey);
 
   registry.set('web_search', {

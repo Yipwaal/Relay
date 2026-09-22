@@ -11,6 +11,8 @@ export interface RelayConfig {
   ollamaUrl: string;
   systemPrompt: string;
   toolMode: ToolModeSetting;
+  /** Ollama's context-window (num_ctx). Memory + tool-resultaten kunnen de default snel overschrijden. */
+  numCtx: number;
   /** Alleen uit .env (OLLAMA_API_KEY) — nooit in config.json, dat in git staat. */
   ollamaApiKey: string | null;
 }
@@ -22,6 +24,7 @@ interface RawConfig {
   ollamaUrl: string;
   systemPrompt: string;
   toolMode: ToolModeSetting;
+  numCtx: number;
 }
 
 function isToolModeSetting(value: unknown): value is ToolModeSetting {
@@ -35,7 +38,9 @@ function isRelayConfig(value: unknown): value is RawConfig {
     typeof v.model === 'string' &&
     typeof v.ollamaUrl === 'string' &&
     typeof v.systemPrompt === 'string' &&
-    isToolModeSetting(v.toolMode)
+    isToolModeSetting(v.toolMode) &&
+    typeof v.numCtx === 'number' &&
+    v.numCtx > 0
   );
 }
 
@@ -81,6 +86,7 @@ export function loadConfig(): RelayConfig {
     ollamaUrl,
     systemPrompt: parsed.systemPrompt,
     toolMode: parsed.toolMode,
+    numCtx: parsed.numCtx,
     ollamaApiKey: process.env.OLLAMA_API_KEY?.trim() || null,
   };
 }

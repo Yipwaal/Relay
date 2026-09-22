@@ -43,3 +43,12 @@ export interface ErrorPayload {
   requestId: string;
   message: string;
 }
+
+export interface MemoryFact {
+  id: number;
+  text: string;
+  /** 'user': handmatig toegevoegd via het instellingenscherm. 'model': via de remember-tool. */
+  source: 'user' | 'model';
+  createdAt: number;
+  updatedAt: number;
+}

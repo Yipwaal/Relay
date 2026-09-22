@@ -13,6 +13,7 @@
     <div id="app">
       <header>
         <h1>Relay</h1>
+        <button id="settings-button" type="button" aria-label="Instellingen">⚙ Geheugen</button>
       </header>
       <main id="messages" aria-live="polite"></main>
       <form id="chat-form">
@@ -20,6 +21,22 @@
         <button type="submit" id="send-button">Verstuur</button>
       </form>
     </div>
+
+    <dialog id="settings-dialog">
+      <h2>Geheugen</h2>
+      <p class="settings-hint">Feiten die Relay onthoudt en in elk gesprek meestuurt.</p>
+      <p id="settings-error" class="settings-error" hidden></p>
+      <ul id="facts-list"></ul>
+      <form id="add-fact-form">
+        <input type="text" id="new-fact-input" placeholder="Nieuw feit..." maxlength="500" />
+        <button type="submit">Toevoegen</button>
+      </form>
+      <div class="dialog-actions">
+        <button id="close-settings-button" type="button">Sluiten</button>
+      </div>
+    </dialog>
+
     <script src="./renderer.js"></script>
+    <script src="./settings.js"></script>
   </body>
 </html>

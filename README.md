@@ -333,13 +333,23 @@ tool-description, wat helpt bij modellen die de tool anders te weinig kiezen
   de algemene 20 MB voor platte tekst, die geen decompressiestap kent) en
   een **30 seconden-timeout** (`withTimeout`, gedeeld met de bestaande
   tool-timeout uit `agent-loop.ts`, zie `src/main/timeout.ts`) rond de hele
-  extractiestap, zodat het main process — en daarmee chat, memory én
-  documenten — niet onbeperkt kan blokkeren. Bewust **niet** geïmplementeerd:
-  extractie in een apart child-/utility-process met harde geheugen-/
-  tijdslimieten (de grondigste oplossing). Dat is voor dit persoonlijke,
-  single-user bureaubladproject disproportioneel — de "aanval" vereist dat
-  dezelfde gebruiker zelf bewust een kwaadaardig bestand kiest via een
-  native OS-dialoog die ze zelf openen. Deze resterende, bewust
+  extractiestap. Belangrijke kanttekening: `withTimeout` race't een `Promise`
+  tegen een `setTimeout` — het annuleert of onderbreekt het onderliggende werk
+  niet. Voor een hang die zelf async blijft yielden (bv. wachtend op I/O)
+  werkt dat prima, maar bij een lange **synchrone**, niet-yieldende bewerking
+  (zoals zlib/pako-decompressie van een docx-zip-bom, of een zwaar
+  PDF-contentstream) kan de event loop de timer pas afvuren zodra die
+  synchrone aanroep zelf terugkeert — de timeout begrenst dan dus niet de
+  werkelijke blokkade, en de weesgeraakte extractie (incl. `pdf-parse`'s
+  `parser.destroy()`-cleanup) blijft op de achtergrond CPU/geheugen
+  verbruiken tot hij vanzelf afrondt. De 5 MB-grens beperkt vooral hóéveel
+  data zo'n synchrone bewerking kan verwerken, niet hóé lang die kan duren.
+  Bewust **niet** geïmplementeerd: extractie in een apart
+  child-/utility-process met harde geheugen-/tijdslimieten (de enige manier
+  om synchroon werk daadwerkelijk te kunnen afbreken). Dat is voor dit
+  persoonlijke, single-user bureaubladproject disproportioneel — de "aanval"
+  vereist dat dezelfde gebruiker zelf bewust een kwaadaardig bestand kiest
+  via een native OS-dialoog die ze zelf openen. Deze resterende, bewust
   geaccepteerde restrisico past bij hoe Fase 2's `web_fetch`-bestemmingsrisico
   en Fase 3's `remember`-multi-beurt-gat zijn behandeld: transparant
   gedocumenteerd in plaats van volledig weggeëngineerd.

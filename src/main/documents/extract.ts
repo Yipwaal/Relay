@@ -26,7 +26,10 @@ function extractPlainText(buffer: Buffer): string {
 }
 
 async function extractPdf(buffer: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: buffer });
+  // isEvalSupported: false — pdfjs-dist compileert anders PDF-ingebedde PostScript-
+  // calculatorfuncties (Separation/DeviceN-kleurruimtes, Type3-fonts) via new Function(...)
+  // en voert die uit in dit (niet-gesandboxde) main process. Niet nodig voor tekstextractie.
+  const parser = new PDFParse({ data: buffer, isEvalSupported: false });
   try {
     const result = await parser.getText();
     return result.pages.map((page) => page.text).join('\n\n');

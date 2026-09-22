@@ -4,11 +4,22 @@ import * as path from 'node:path';
 import { loadConfig } from '../config';
 import { createOllamaEmbedder } from '../ollama-embed';
 import { ingestDocument } from '../documents/ingest';
-import { SUPPORTED_EXTENSIONS } from '../documents/extract';
+import { SUPPORTED_EXTENSIONS, type SupportedExtension } from '../documents/extract';
 import type { DocumentStore, DocumentRecord } from '../documents/store';
 import type { DocumentInfo } from '../../shared/ipc-types';
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+// .pdf/.docx zijn gecomprimeerde formaten: hun uitgepakte tekst kan veel groter zijn
+// dan het bestand op schijf (decompressie-bom-risico, zie README). Een lagere grens
+// hier beperkt hoeveel data er überhaupt aan de (niet-gesandboxde) extractie wordt
+// aangeboden; .txt/.md worden direct gelezen zonder decompressiestap.
+const MAX_COMPRESSED_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const COMPRESSED_EXTENSIONS: ReadonlySet<SupportedExtension> = new Set(['.pdf', '.docx']);
+
+function maxFileSizeFor(filePath: string): number {
+  const ext = path.extname(filePath).toLowerCase();
+  return COMPRESSED_EXTENSIONS.has(ext as SupportedExtension) ? MAX_COMPRESSED_FILE_SIZE_BYTES : MAX_FILE_SIZE_BYTES;
+}
 
 function safeSend(sender: WebContents, channel: string, payload: unknown): void {
   if (sender.isDestroyed()) return;
@@ -60,8 +71,9 @@ export function registerDocumentsHandlers(documentStore: DocumentStore): void {
 
       const filePath = dialogResult.filePaths[0] as string;
       const stat = await fs.stat(filePath);
-      if (stat.size > MAX_FILE_SIZE_BYTES) {
-        throw new Error(`Bestand is te groot (max ${Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024))} MB).`);
+      const maxSize = maxFileSizeFor(filePath);
+      if (stat.size > maxSize) {
+        throw new Error(`Bestand is te groot (max ${Math.round(maxSize / (1024 * 1024))} MB).`);
       }
 
       const buffer = await fs.readFile(filePath);

@@ -3,6 +3,7 @@ import type { ChatMessage } from '../../shared/ipc-types';
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
+import { withTimeout } from '../timeout';
 import type { ToolMode } from './capabilities';
 import { buildToolResultMessage, normalizeNativeToolCalls, tryExtractPromptToolCall, type ToolCall } from './tool-protocol';
 
@@ -22,22 +23,6 @@ export interface AgentEvents {
   onToolCall(label: string): void;
   /** preview: de exacte (gesaneerde) inhoud die het model krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
   onToolResult(summary: string, ok: boolean, preview: string): void;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} duurde langer dan ${ms}ms`)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      },
-    );
-  });
 }
 
 function describeCall(call: ToolCall): string {

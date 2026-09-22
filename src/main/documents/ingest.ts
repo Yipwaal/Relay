@@ -3,12 +3,17 @@ import { extractText } from './extract';
 import { chunkText } from './chunker';
 import type { DocumentStore, DocumentRecord } from './store';
 import type { Embedder } from '../ollama-embed';
+import { withTimeout } from '../timeout';
 
 const EMBED_BATCH_SIZE = 16;
 // Ruime bovengrens voor persoonlijk gebruik (~830 chunks van CHUNK_TARGET_CHARS) —
 // voorkomt dat één document honderden embedding-aanroepen en een trage,
 // onvoorspelbare ingest-tijd veroorzaakt.
 const MAX_EXTRACTED_CHARS = 1_000_000;
+// Compressieformaten (pdf/docx) kunnen tijdens het uitpakken/parsen lang blijven hangen
+// vóórdat MAX_EXTRACTED_CHARS hierboven kan afdwingen (decompressie-bom-risico, zie
+// README). Deze timeout begrenst hoe lang dat het main process mag blokkeren.
+const EXTRACT_TIMEOUT_MS = 30_000;
 
 export interface IngestInput {
   filePath: string;
@@ -33,7 +38,7 @@ export async function ingestDocument(
   input: IngestInput,
   onProgress?: (progress: IngestProgress) => void,
 ): Promise<DocumentRecord> {
-  const text = await extractText(input.filePath, input.buffer);
+  const text = await withTimeout(extractText(input.filePath, input.buffer), EXTRACT_TIMEOUT_MS, 'Tekst-extractie');
   if (text.length > MAX_EXTRACTED_CHARS) {
     throw new Error(
       `Document is te groot na extractie (${text.length} tekens, max ${MAX_EXTRACTED_CHARS}). Splits het document in kleinere delen.`,

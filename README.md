@@ -278,10 +278,12 @@ constanten zijn in tekens:
   chunk wordt samengevoegd met de vorige)
 - Een markdown-kop (`#`) begint bij voorkeur een nieuwe chunk.
 
-Bovengrenzen tegen te grote/trage documenten: **20 MB** bronbestand,
-**1.000.000 tekens** na extractie (ruim voldoende voor persoonlijk gebruik,
-~830 chunks) — daarboven een duidelijke foutmelding i.p.v. een trage of
-halfwerkende ingest.
+Bovengrenzen tegen te grote/trage documenten: **20 MB** bronbestand voor
+`.txt`/`.md` (direct ingelezen, geen decompressiestap), **5 MB** specifiek
+voor `.pdf`/`.docx` (zie "Veiligheid" hieronder), **1.000.000 tekens** na
+extractie (ruim voldoende voor persoonlijk gebruik, ~830 chunks), en een
+**30-seconden timeout** rond de hele extractiestap — daarboven een
+duidelijke foutmelding i.p.v. een trage of halfwerkende ingest.
 
 ### Retrieval als tool, niet als automatische injectie
 
@@ -316,3 +318,28 @@ tool-description, wat helpt bij modellen die de tool anders te weinig kiezen
 - Content-hash-dedupe (sha256) voorkomt dat hetzelfde document twee keer
   wordt toegevoegd; een `ingestInProgress`-vlag staat maar één
   document-toevoeging tegelijk toe.
+- **`isEvalSupported: false`** staat expliciet aan bij `pdf-parse`'s
+  `PDFParse`-constructor. Zonder deze vlag compileert pdfjs-dist (de
+  onderliggende PDF-parser) ingebedde PostScript-calculatorfuncties
+  (Separation/DeviceN-kleurruimtes, Type3-fonts) via `new Function(...)` en
+  voert die uit — in dit (niet-gesandboxde) Electron main process, niet in
+  een geïsoleerde worker. Niet nodig voor platte tekstextractie, dus uit.
+- **Decompressie-bommen (`.pdf`/`.docx`) — deels gemitigeerd, niet
+  uitgesloten.** `MAX_EXTRACTED_CHARS` wordt pas gecontroleerd ná volledige
+  extractie, dus een sterk gecomprimeerd kwaadaardig bestand kan tijdens het
+  uitpakken/parsen zelf al een geheugen-/CPU-piek veroorzaken vóórdat die
+  grens ingrijpt. Twee maatregelen beperken de impact: een lagere
+  bestandsgrootte-limiet van **5 MB** specifiek voor `.pdf`/`.docx` (i.p.v.
+  de algemene 20 MB voor platte tekst, die geen decompressiestap kent) en
+  een **30 seconden-timeout** (`withTimeout`, gedeeld met de bestaande
+  tool-timeout uit `agent-loop.ts`, zie `src/main/timeout.ts`) rond de hele
+  extractiestap, zodat het main process — en daarmee chat, memory én
+  documenten — niet onbeperkt kan blokkeren. Bewust **niet** geïmplementeerd:
+  extractie in een apart child-/utility-process met harde geheugen-/
+  tijdslimieten (de grondigste oplossing). Dat is voor dit persoonlijke,
+  single-user bureaubladproject disproportioneel — de "aanval" vereist dat
+  dezelfde gebruiker zelf bewust een kwaadaardig bestand kiest via een
+  native OS-dialoog die ze zelf openen. Deze resterende, bewust
+  geaccepteerde restrisico past bij hoe Fase 2's `web_fetch`-bestemmingsrisico
+  en Fase 3's `remember`-multi-beurt-gat zijn behandeld: transparant
+  gedocumenteerd in plaats van volledig weggeëngineerd.

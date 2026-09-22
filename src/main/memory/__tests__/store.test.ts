@@ -39,12 +39,32 @@ test('addFact weigert een te lang feit', () => {
 
 test('addFact met identieke tekst dedupliceert via upsert i.p.v. een tweede rij', () => {
   const store = freshStore();
-  store.addFact('Woont in Utrecht', 'user');
+  store.addFact('Woont in Utrecht', 'model');
   store.addFact('Woont in Utrecht', 'model');
 
   const facts = store.listFacts();
   assert.equal(facts.length, 1);
   assert.equal(facts[0]?.source, 'model');
+});
+
+test('addFact: source "user" wint altijd bij een upsert-conflict, nooit overschreven door "model"', () => {
+  const store = freshStore();
+  store.addFact('Woont in Utrecht', 'user');
+  store.addFact('Woont in Utrecht', 'model');
+
+  const facts = store.listFacts();
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0]?.source, 'user', 'een remember-aanroep mag een handmatig feit niet naar "model" ombuigen');
+});
+
+test('addFact: een user-aanroep mag een bestaand model-feit wél naar "user" ombuigen', () => {
+  const store = freshStore();
+  store.addFact('Woont in Utrecht', 'model');
+  store.addFact('Woont in Utrecht', 'user');
+
+  const facts = store.listFacts();
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0]?.source, 'user');
 });
 
 test('updateFact wijzigt de tekst van een bestaand feit', () => {

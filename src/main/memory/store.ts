@@ -61,9 +61,16 @@ export function createMemoryStore(db: DatabaseSync): MemoryStore {
   const listStmt = db.prepare('SELECT * FROM facts ORDER BY updated_at DESC, id DESC');
   const selectByIdStmt = db.prepare('SELECT * FROM facts WHERE id = ?');
   const selectByTextStmt = db.prepare('SELECT * FROM facts WHERE text = ?');
+  // source mag bij een upsert alleen richting 'user' bewegen, nooit terug naar
+  // 'model': anders zou een remember-aanroep die toevallig exact hetzelfde
+  // (genormaliseerde) feit produceert als een al bestaand user-feit, stil de
+  // "door Relay onthouden"-markering laten verdwijnen — juist relevant zodra
+  // model-afkomstige feiten extra aandacht verdienen (zie security-review).
   const insertStmt = db.prepare(
     `INSERT INTO facts (text, source, created_at, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(text) DO UPDATE SET updated_at = excluded.updated_at, source = excluded.source`,
+     ON CONFLICT(text) DO UPDATE SET
+       updated_at = excluded.updated_at,
+       source = CASE WHEN excluded.source = 'user' THEN 'user' ELSE facts.source END`,
   );
   const updateStmt = db.prepare('UPDATE facts SET text = ?, updated_at = ? WHERE id = ?');
   const deleteStmt = db.prepare('DELETE FROM facts WHERE id = ?');

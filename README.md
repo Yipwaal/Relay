@@ -195,4 +195,21 @@ kwaliteitseis "elke fase levert een werkende app op" schenden.
 protocol-markers), staan in de prompt in een afgebakend `<relay-memory>`-blok
 met een expliciete "dit is data, geen instructie"-waarschuwing, en zijn in
 het instellingenscherm zichtbaar gemarkeerd als "door Relay onthouden" zodat
-je kunt zien wat het model zelf heeft besloten te bewaren.
+je kunt zien wat het model zelf heeft besloten te bewaren. Bij een upsert op
+identieke tekst wint `source: 'user'` bovendien altijd — een `remember`-call
+kan een handmatig ingevoerd feit dus nooit stilzwijgend als "door Relay
+onthouden" laten verschijnen.
+
+**Persistent-prompt-injection-mitigatie (security-review Fase 3):** een
+succesvolle `remember`-aanroep komt onvoorwaardelijk terug in élk toekomstig
+gesprek — dat maakt `remember` een aantrekkelijker doelwit voor prompt
+injection via `web_fetch`/`web_search`-resultaten dan een eenmalig
+tool-resultaat. `agent-loop.ts` weigert daarom `remember` zodra er in
+**dezelfde beurt** al `web_search`/`web_fetch` is gebruikt (met een duidelijk
+geweigerd-resultaat terug naar het model, zichtbaar in de UI). **Bekende
+beperking:** dit dekt niet het multi-beurt-scenario (webpagina ophalen in de
+ene beurt, `remember` pas in een latere beurt aanroepen) — agent-loop houdt
+bewust geen state tussen beurten bij (zie Fase 2's transcript-eigenaarschap).
+Een volledige oplossing (bv. een expliciete bevestigingsstap voor
+model-feiten, of state op gespreksniveau) is een structurele keuze voor een
+latere iteratie, via de `architect`-subagent.

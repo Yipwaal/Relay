@@ -1,8 +1,17 @@
 import { ipcMain } from 'electron';
 import type { MemoryStore } from '../memory/store';
 
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+// Ruime marge boven store.ts's MAX_FACT_CHARS (500): wijst oversized payloads
+// al af op de IPC-grens, vóórdat ze normalizeText() in store.ts bereiken.
+const MAX_IPC_TEXT_LENGTH = 2000;
+
+function assertValidText(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error('Feit mag niet leeg zijn.');
+  }
+  if (value.length > MAX_IPC_TEXT_LENGTH) {
+    throw new Error(`Feit is te lang (max ${MAX_IPC_TEXT_LENGTH} tekens).`);
+  }
 }
 
 function isValidId(value: unknown): value is number {
@@ -20,9 +29,7 @@ export function registerMemoryHandlers(store: MemoryStore): void {
   ipcMain.handle('relay:memory:list', () => store.listFacts());
 
   ipcMain.handle('relay:memory:add', (_event, text: unknown) => {
-    if (!isNonEmptyString(text)) {
-      throw new Error('Feit mag niet leeg zijn.');
-    }
+    assertValidText(text);
     return store.addFact(text, 'user');
   });
 
@@ -30,9 +37,7 @@ export function registerMemoryHandlers(store: MemoryStore): void {
     if (!isValidId(id)) {
       throw new Error('Ongeldig id.');
     }
-    if (!isNonEmptyString(text)) {
-      throw new Error('Feit mag niet leeg zijn.');
-    }
+    assertValidText(text);
     return store.updateFact(id, text);
   });
 

@@ -99,10 +99,21 @@ async function executeCall(call: ToolCall, tools: Map<string, ToolDefinition>): 
  * toegevoegde berichten terug (assistant + eventuele tool-berichten) zodat de
  * aanroeper (ipc/chat-handler.ts) de renderer-geschiedenis kan bijwerken.
  */
+const REMEMBER_AFTER_WEB_TOOL_MESSAGE =
+  'remember geweigerd: er is deze beurt al web_search/web_fetch gebruikt. Vraag de gebruiker expliciet te ' +
+  'bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
+
 export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<ChatMessage[]> {
   const turnMessages = [...messages];
   const appended: ChatMessage[] = [];
   const seenCalls = new Set<string>();
+  // Voorkomt dat een manipulatieve webpagina het model binnen dezelfde beurt
+  // laat overtuigen om iets via remember op te slaan — dat zou anders
+  // onvoorwaardelijk in élk toekomstig gesprek terugkomen (zie security-review
+  // Fase 3). Dekt niet het multi-beurt-scenario (fetch in beurt 1, remember
+  // in beurt 2): agent-loop houdt bewust geen state tussen beurten bij, zie
+  // README.md.
+  let usedWebToolThisTurn = false;
 
   // Met 'remember' altijd geregistreerd (zie tools/index.ts) is er nu altijd
   // minstens één tool beschikbaar. Welk pad gekozen wordt hangt dus alleen
@@ -208,8 +219,24 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     }
     seenCalls.add(dedupeKey);
 
+    if (call.name === 'remember' && usedWebToolThisTurn) {
+      events.onToolCall(describeCall(call));
+      events.onToolResult(`Geweigerd: ${REMEMBER_AFTER_WEB_TOOL_MESSAGE}`, false, REMEMBER_AFTER_WEB_TOOL_MESSAGE);
+      const notice = buildToolResultMessage(
+        ctx.toolMode,
+        call,
+        JSON.stringify({ error: REMEMBER_AFTER_WEB_TOOL_MESSAGE }),
+      );
+      turnMessages.push(notice);
+      appended.push(notice);
+      continue;
+    }
+
     events.onToolCall(describeCall(call));
     const { ok, result } = await executeCall(call, ctx.tools);
+    if (ok && (call.name === 'web_search' || call.name === 'web_fetch')) {
+      usedWebToolThisTurn = true;
+    }
 
     const sanitized = sanitizeExternalContent(JSON.stringify(result));
     events.onToolResult(describeResult(call, ok, result), ok, sanitized);

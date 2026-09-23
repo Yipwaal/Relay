@@ -1,5 +1,6 @@
 const chatInputEl = document.getElementById('chat-input') as HTMLTextAreaElement;
 const sendButtonEl = document.getElementById('send-button') as HTMLButtonElement;
+const stopButtonEl = document.getElementById('stop-button') as HTMLButtonElement;
 const attachButtonEl = document.getElementById('attach-button') as HTMLButtonElement;
 const docChipsEl = document.getElementById('doc-chips') as HTMLElement;
 const composerErrorEl = document.getElementById('composer-error') as HTMLElement;
@@ -19,7 +20,11 @@ function autoGrowInput(): void {
 }
 
 function updateSendButton(): void {
-  sendButtonEl.disabled = appState.pending !== null || chatInputEl.value.trim().length === 0;
+  const streaming = appState.pending !== null;
+  sendButtonEl.hidden = streaming;
+  stopButtonEl.hidden = !streaming;
+  stopButtonEl.disabled = appState.pending?.stopping ?? false;
+  sendButtonEl.disabled = streaming || chatInputEl.value.trim().length === 0;
 }
 
 function documentMeta(doc: RelayDocumentInfo): string {
@@ -82,6 +87,14 @@ chatInputEl.addEventListener('keydown', (event: KeyboardEvent) => {
 });
 
 sendButtonEl.addEventListener('click', () => void sendCurrentDraft());
+
+stopButtonEl.addEventListener('click', () => {
+  const pending = appState.pending;
+  if (!pending || pending.stopping) return;
+  pending.stopping = true;
+  window.relay.stopMessage(pending.requestId);
+  updateSendButton();
+});
 
 attachButtonEl.addEventListener('click', () => {
   clearComposerError();

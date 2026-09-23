@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildToolResultMessage,
   buildToolSystemAppendix,
+  stripPartialToolCall,
   normalizeNativeToolCalls,
   tryExtractPromptToolCall,
 } from '../tool-protocol';
@@ -90,4 +91,11 @@ test('buildToolResultMessage wrapt het resultaat als user-bericht in prompt-modu
   assert.equal(message.role, 'user');
   assert.match(message.content, /<relay-tool-result name="web_search">/);
   assert.match(message.content, /<\/relay-tool-result>/);
+});
+
+test('stripPartialToolCall knipt een (half) tool-blok van het eind af', () => {
+  assert.equal(stripPartialToolCall('Even kijken.\n```relay_tool_call\n{"tool":'), 'Even kijken.');
+  assert.equal(stripPartialToolCall('Even kijken.\n```relay_tool'), 'Even kijken.');
+  assert.equal(stripPartialToolCall('Even kijken.\n``'), 'Even kijken.');
+  assert.equal(stripPartialToolCall('Gewoon antwoord.'), 'Gewoon antwoord.');
 });

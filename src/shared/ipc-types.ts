@@ -47,6 +47,16 @@ export interface ToolResultInfo {
 export type ToolCallPayload = ToolCallInfo & { requestId: string };
 export type ToolResultPayload = ToolResultInfo & { requestId: string };
 
+export interface OllamaStatus {
+  running: boolean;
+}
+
+/** 'loading-model': het model staat nog niet in het geheugen — de eerste token kan even duren. */
+export interface ChatStatusPayload {
+  requestId: string;
+  status: 'loading-model';
+}
+
 export interface AppDefaults {
   model: string;
   numCtx: number;
@@ -54,6 +64,8 @@ export interface AppDefaults {
 
 export interface DonePayload {
   requestId: string;
+  /** true als de gebruiker de beurt met de stop-knop heeft afgebroken. */
+  stopped: boolean;
   /** Alle berichten die deze beurt aan de geschiedenis zijn toegevoegd (assistant + eventuele tool-berichten), in volgorde. */
   appended: ChatMessage[];
 }

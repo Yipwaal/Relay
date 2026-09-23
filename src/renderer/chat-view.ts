@@ -112,7 +112,11 @@ function buildMessageElement(m: DisplayMessage): HTMLElement {
   avatar.src = RELAY_ICON_SRC;
   avatar.alt = '';
   const bubble = h('div', { class: `msg-bubble${m.failed ? ' is-error' : ''}`, text: m.text });
-  if (m.streaming) bubble.appendChild(h('span', { class: 'stream-cursor' }));
+  if (m.loadingModel && m.text.length === 0) {
+    bubble.appendChild(h('span', { class: 'msg-loading', text: `${m.model} wordt geladen… de eerste keer kan dat even duren.` }));
+  } else if (m.streaming) {
+    bubble.appendChild(h('span', { class: 'stream-cursor' }));
+  }
   return h('div', { class: 'msg-assistant' }, [
     h('div', { class: 'msg-assistant-head' }, [avatar, h('span', { class: 'msg-author', text: 'Relay' }), h('span', { class: 'msg-model', text: m.model })]),
     bubble,

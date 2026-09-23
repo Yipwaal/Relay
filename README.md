@@ -13,7 +13,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 2 — Web search + fetch (tool calling)
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
-- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓)
+- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓)
 
 ## Vereisten
 
@@ -383,4 +383,30 @@ duur, en uitgeklapt de gevonden fragmenten (bron + tekst). Die fragmenten
 bouwt main per stuk uit hetzelfde tool-resultaat en haalt elk apart door
 `sanitizeExternalContent` (`chat/tool-display.ts`), zodat de gebruiker nooit
 minder ziet dan het model.
+
+### Afsluiten, stoppen en een Ollama die niet draait
+
+- **Modellen direct uit het geheugen bij afsluiten.** Ollama houdt een model
+  standaard 5 minuten geladen (`keep_alive`), en met
+  `OLLAMA_MAX_LOADED_MODELS` op auto kunnen er meerdere tegelijk resident
+  zijn. `before-quit` houdt het afsluiten daarom eenmalig tegen, vraagt
+  `/api/ps` welke modellen écht geladen zijn, stuurt voor elk parallel
+  `POST /api/generate {model, keep_alive: 0}`, sluit de database en roept
+  dan `app.exit()` aan (niet `app.quit()`, dat zou `before-quit` opnieuw
+  afvuren). Het geheel is begrensd op 2 seconden: een gestopte of hangende
+  Ollama houdt het afsluiten nooit tegen (`src/main/quit.ts`,
+  `src/main/ollama-lifecycle.ts`).
+- **Gemaximaliseerd openen**: het venster start verborgen en wordt bij
+  `ready-to-show` gemaximaliseerd en pas dan getoond. Navigeren (bv. door
+  een bestand op het venster te slepen) en nieuwe vensters zijn geblokkeerd.
+- **Stop-knop**: `relay:chat:stop` breekt via een `AbortController` per
+  lopend verzoek de stream of een lopende tool-aanroep af. De tekst tot dan
+  blijft staan en gaat mee de geschiedenis in; een half binnengekomen
+  tool-aanroep-blok wordt eraf geknipt en nooit uitgevoerd.
+- **Ollama draait niet**: een verbindingsfout wordt "Ollama lijkt niet te
+  draaien — start Ollama en probeer opnieuw" (`src/main/ollama-errors.ts`),
+  en de indicator linksboven (elke 30 s `/api/version`) wordt rood.
+- **Model wordt geladen**: staat het model nog niet in het geheugen
+  (`/api/ps`), dan toont de UI "wordt geladen…" tot de eerste token binnen
+  is — bij een 12B-model kan dat tientallen seconden duren.
 

@@ -6,6 +6,7 @@ import { resolveToolMode } from '../chat/capabilities';
 import { buildSystemPrompt, MAX_MEMORY_CHARS } from '../chat/system-prompt';
 import { runAgentTurn } from '../chat/agent-loop';
 import { createOllamaEmbedder } from '../ollama-embed';
+import { isModelLoaded } from '../ollama-lifecycle';
 import type { MemoryStore } from '../memory/store';
 import type { DocumentStore } from '../documents/store';
 import type { AppDefaults, ChatMessage, ChatToolCall } from '../../shared/ipc-types';
@@ -47,6 +48,11 @@ function isChatSendPayload(value: unknown): value is ChatSendPayload {
   return typeof v.requestId === 'string' && Array.isArray(v.messages) && v.messages.every(isIncomingMessage);
 }
 
+const LOADED_CHECK_TIMEOUT_MS = 500;
+
+/** Lopende verzoeken, zodat relay:chat:stop de juiste kan afbreken. */
+const activeRequests = new Map<string, AbortController>();
+
 function safeSend(sender: WebContents, channel: string, payload: unknown): void {
   if (sender.isDestroyed()) return;
   sender.send(channel, payload);
@@ -58,6 +64,7 @@ async function handleChatRequest(
   incoming: IncomingMessage[],
   memoryStore: MemoryStore,
   documentStore: DocumentStore,
+  controller: AbortController,
 ): Promise<void> {
   try {
     const config = loadConfig();
@@ -93,8 +100,14 @@ async function handleChatRequest(
         `facts=${facts.facts.length} messages=${turnMessages.length}`,
     );
 
+    // Cold start: een 12B-model laden kan tientallen seconden duren. Laat de
+    // UI dat zien i.p.v. dat het lijkt alsof er niets gebeurt.
+    if ((await isModelLoaded(config.ollamaUrl, config.model, LOADED_CHECK_TIMEOUT_MS)) === false) {
+      safeSend(sender, 'relay:chat:status', { requestId, status: 'loading-model' });
+    }
+
     const appended = await runAgentTurn(
-      { ollamaUrl: config.ollamaUrl, model: config.model, toolMode, tools, numCtx: config.numCtx },
+      { ollamaUrl: config.ollamaUrl, model: config.model, toolMode, tools, numCtx: config.numCtx, signal: controller.signal },
       turnMessages,
       {
         onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
@@ -103,11 +116,13 @@ async function handleChatRequest(
       },
     );
 
-    safeSend(sender, 'relay:chat:done', { requestId, appended });
+    safeSend(sender, 'relay:chat:done', { requestId, appended, stopped: controller.signal.aborted });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Onbekende fout bij Ollama-aanroep';
     console.error(`[relay] chat request mislukt: ${message}`);
     safeSend(sender, 'relay:chat:error', { requestId, message });
+  } finally {
+    activeRequests.delete(requestId);
   }
 }
 
@@ -122,6 +137,17 @@ export function registerChatHandler(memoryStore: MemoryStore, documentStore: Doc
       console.error('[relay] ongeldig chat:send-bericht genegeerd');
       return;
     }
-    void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore, documentStore);
+    if (activeRequests.has(payload.requestId)) {
+      console.error('[relay] dubbel requestId genegeerd');
+      return;
+    }
+    const controller = new AbortController();
+    activeRequests.set(payload.requestId, controller);
+    void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore, documentStore, controller);
+  });
+
+  ipcMain.on('relay:chat:stop', (_event: IpcMainEvent, requestId: unknown) => {
+    if (typeof requestId !== 'string') return;
+    activeRequests.get(requestId)?.abort();
   });
 }

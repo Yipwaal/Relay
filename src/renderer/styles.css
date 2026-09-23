@@ -601,6 +601,23 @@ button {
   background: var(--neg-soft);
 }
 
+.btn-stop {
+  min-width: 90px;
+}
+
+.stop-square {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--text);
+  display: block;
+}
+
+.msg-loading {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .stream-cursor {
   display: inline-block;
   width: 8px;

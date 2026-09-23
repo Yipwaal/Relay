@@ -12,6 +12,23 @@ export type PromptToolCallResult =
 
 const TOOL_CALL_BLOCK = /```relay_tool_call\s*\n?([\s\S]*?)```/;
 
+/**
+ * Knipt een half binnengekomen tool-aanroep-blok van het eind af — nodig als
+ * de stream midden in zo'n blok stopt (stop-knop), anders ziet de gebruiker
+ * rauwe protocol-tekst.
+ */
+const TOOL_CALL_SENTINEL = '```relay_tool_call';
+
+export function stripPartialToolCall(buffer: string): string {
+  const index = buffer.indexOf(TOOL_CALL_SENTINEL);
+  if (index >= 0) return buffer.slice(0, index).trimEnd();
+  // De stream kan ook midden in de marker zelf stoppen (bv. "```relay_tool").
+  for (let length = TOOL_CALL_SENTINEL.length - 1; length > 0; length--) {
+    if (buffer.endsWith(TOOL_CALL_SENTINEL.slice(0, length))) return buffer.slice(0, -length).trimEnd();
+  }
+  return buffer;
+}
+
 export function normalizeNativeToolCalls(calls: NativeToolCall[]): ToolCall[] {
   return calls.map((c) => ({ name: c.function.name, args: c.function.arguments ?? {} }));
 }

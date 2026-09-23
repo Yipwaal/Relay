@@ -77,7 +77,7 @@ async function sendCurrentDraft(): Promise<void> {
   if (wasEmpty) renderActive();
   else appendMessageElement(c.id, userMessage);
 
-  appState.pending = { requestId: window.relay.sendMessage(c.history), conversationId: c.id, segment: null };
+  appState.pending = { requestId: window.relay.sendMessage(c.history), conversationId: c.id, segment: null, stopping: false };
   updateSendButton();
   renderSidebar();
   renderHeader();
@@ -103,6 +103,21 @@ function finishSegment(pending: PendingRequest, conversation: ConversationView |
   }
 }
 
+function startSegment(pending: PendingRequest, conversation: ConversationView): Extract<DisplayMessage, { kind: 'assistant' }> {
+  const segment: Extract<DisplayMessage, { kind: 'assistant' }> = {
+    kind: 'assistant',
+    text: '',
+    model: conversation.model,
+    streaming: true,
+    failed: false,
+    loadingModel: false,
+  };
+  pending.segment = segment;
+  conversation.display.push(segment);
+  appendMessageElement(conversation.id, segment);
+  return segment;
+}
+
 function endRequest(): void {
   appState.pending = null;
   updateSendButton();
@@ -113,14 +128,18 @@ function endRequest(): void {
 window.relay.onChunk((payload) => {
   const match = pendingFor(payload.requestId);
   if (!match?.conversation) return;
-  const { pending, conversation } = match;
-  if (!pending.segment) {
-    pending.segment = { kind: 'assistant', text: '', model: conversation.model, streaming: true, failed: false };
-    conversation.display.push(pending.segment);
-    appendMessageElement(conversation.id, pending.segment);
-  }
-  pending.segment.text += payload.token;
-  updateMessageElement(pending.segment);
+  const segment = match.pending.segment ?? startSegment(match.pending, match.conversation);
+  segment.loadingModel = false;
+  segment.text += payload.token;
+  updateMessageElement(segment);
+});
+
+window.relay.onStatus((payload) => {
+  const match = pendingFor(payload.requestId);
+  if (!match?.conversation || payload.status !== 'loading-model') return;
+  const segment = match.pending.segment ?? startSegment(match.pending, match.conversation);
+  segment.loadingModel = true;
+  updateMessageElement(segment);
 });
 
 window.relay.onToolCall((payload) => {
@@ -159,6 +178,8 @@ window.relay.onToolResult((payload) => {
 window.relay.onDone((payload) => {
   const match = pendingFor(payload.requestId);
   if (!match) return;
+  const segment = match.pending.segment;
+  if (payload.stopped && segment && segment.text.trim().length > 0) segment.text = `${segment.text.trimEnd()} …`;
   finishSegment(match.pending, match.conversation);
   if (match.conversation) {
     match.conversation.history.push(...payload.appended);
@@ -181,12 +202,30 @@ window.relay.onError((payload) => {
         updateMessageElement(m);
       }
     }
-    const errorMessage: DisplayMessage = { kind: 'assistant', text: payload.message, model: conversation.model, streaming: false, failed: true };
+    const errorMessage: DisplayMessage = {
+      kind: 'assistant',
+      text: payload.message,
+      model: conversation.model,
+      streaming: false,
+      failed: true,
+      loadingModel: false,
+    };
     conversation.display.push(errorMessage);
     appendMessageElement(conversation.id, errorMessage);
   }
   endRequest();
+  void refreshOllamaStatus();
 });
+
+const ollamaStatusEl = document.getElementById('ollama-status') as HTMLElement;
+const ollamaStatusTextEl = document.getElementById('ollama-status-text') as HTMLElement;
+const OLLAMA_STATUS_INTERVAL_MS = 30_000;
+
+async function refreshOllamaStatus(): Promise<void> {
+  const { running } = await window.relay.ollamaStatus().catch(() => ({ running: false }));
+  ollamaStatusEl.classList.toggle('is-down', !running);
+  ollamaStatusTextEl.textContent = running ? 'Lokaal · Ollama actief' : 'Ollama niet bereikbaar';
+}
 
 document.getElementById('new-chat-button')?.addEventListener('click', () => void newConversation());
 
@@ -207,6 +246,9 @@ async function initApp(): Promise<void> {
   appState.activeId = appState.conversations[0]?.id ?? 0;
   renderActive();
   chatInputEl.focus();
+
+  void refreshOllamaStatus();
+  setInterval(() => void refreshOllamaStatus(), OLLAMA_STATUS_INTERVAL_MS);
 
   await Promise.all([
     refreshDocuments(),

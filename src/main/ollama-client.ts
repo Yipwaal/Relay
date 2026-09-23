@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../shared/ipc-types';
+import { fetchOllama } from './ollama-errors';
 
 export type { ChatMessage };
 
@@ -98,7 +99,7 @@ export async function streamChat(options: StreamChatOptions, handlers: StreamCha
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/api/chat`, {
+    response = await fetchOllama(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

@@ -1,3 +1,5 @@
+import { fetchOllama } from './ollama-errors';
+
 export interface Embedder {
   /** Eén Ollama-aanroep voor alle meegegeven teksten — batching (voor voortgangsrapportage) is aan de aanroeper. */
   embed(texts: string[]): Promise<Float32Array[]>;
@@ -19,7 +21,7 @@ export function createOllamaEmbedder(baseUrl: string, model: string): Embedder {
     async embed(texts: string[]): Promise<Float32Array[]> {
       if (texts.length === 0) return [];
 
-      const response = await fetch(`${baseUrl}/api/embed`, {
+      const response = await fetchOllama(`${baseUrl}/api/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, input: texts }),

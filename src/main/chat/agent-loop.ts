@@ -3,10 +3,16 @@ import type { ChatMessage, ToolCallInfo, ToolResultInfo } from '../../shared/ipc
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
-import { withTimeout } from '../timeout';
+import { abortable, withTimeout } from '../timeout';
 import type { ToolMode } from './capabilities';
 import { buildPreviewItems, callQuery, describeCall, describeResult } from './tool-display';
-import { buildToolResultMessage, normalizeNativeToolCalls, tryExtractPromptToolCall, type ToolCall } from './tool-protocol';
+import {
+  buildToolResultMessage,
+  normalizeNativeToolCalls,
+  stripPartialToolCall,
+  tryExtractPromptToolCall,
+  type ToolCall,
+} from './tool-protocol';
 
 const MAX_ITERATIONS = 5;
 const TOOL_TIMEOUT_MS = 15_000;
@@ -17,6 +23,8 @@ export interface AgentContext {
   toolMode: ToolMode;
   tools: Map<string, ToolDefinition>;
   numCtx: number;
+  /** Stop-knop: breekt de lopende stream of tool-aanroep af; de beurt eindigt dan netjes. */
+  signal?: AbortSignal;
 }
 
 export interface AgentEvents {
@@ -26,7 +34,11 @@ export interface AgentEvents {
   onToolResult(info: ToolResultInfo): void;
 }
 
-async function executeCall(call: ToolCall, tools: Map<string, ToolDefinition>): Promise<{ ok: boolean; result: unknown }> {
+async function executeCall(
+  call: ToolCall,
+  tools: Map<string, ToolDefinition>,
+  signal: AbortSignal | undefined,
+): Promise<{ ok: boolean; result: unknown }> {
   const tool = tools.get(call.name);
   if (!tool) {
     return { ok: false, result: { error: `Onbekende tool: "${call.name}"` } };
@@ -35,7 +47,7 @@ async function executeCall(call: ToolCall, tools: Map<string, ToolDefinition>): 
   console.log(`[relay] tool-aanroep: ${call.name} input=${JSON.stringify(call.args)}`);
 
   try {
-    const result = await withTimeout(tool.execute(call.args), TOOL_TIMEOUT_MS, `Tool "${call.name}"`);
+    const result = await abortable(withTimeout(tool.execute(call.args), TOOL_TIMEOUT_MS, `Tool "${call.name}"`), signal);
     return { ok: true, result };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Tool-aanroep mislukt';
@@ -88,6 +100,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
   const toolSchemas = usePlainStreaming ? toToolSchemas(ctx.tools) : undefined;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    if (ctx.signal?.aborted) break;
     let pendingCall: ToolCall | null = null;
     let assistantMessage: ChatMessage;
 
@@ -95,7 +108,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let assistantText = '';
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, numCtx: ctx.numCtx },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, numCtx: ctx.numCtx, signal: ctx.signal },
         {
           onToken: (token) => {
             assistantText += token;
@@ -108,6 +121,9 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           },
         },
       );
+
+      // Na een stop voeren we een eventueel al ontvangen tool-aanroep niet meer uit.
+      if (ctx.signal?.aborted) pendingCall = null;
 
       // Native tool_calls horen bij het assistant-bericht zelf terug de
       // geschiedenis in, anders mist Ollama bij de volgende iteratie de
@@ -122,11 +138,12 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       // Prompt-fallback: niet live streamen naar de UI vóórdat we weten of dit
       // een tool-aanroep is (anders lekt het rauwe JSON-blok in de chat).
       const controller = new AbortController();
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
       let rawBuffer = '';
       let malformedError: string | null = null;
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal: controller.signal, numCtx: ctx.numCtx },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal, numCtx: ctx.numCtx },
         {
           onToken: (token) => {
             rawBuffer += token;
@@ -160,6 +177,9 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       // rawBuffer (incl. een eventueel tool-call-blok) blijft altijd de echte
       // geschiedenis in — alleen de live UI (events.onToken) laat het blok
       // zelf weg, zodat de gebruiker nooit rauwe protocol-JSON te zien krijgt.
+      if (ctx.signal?.aborted && !pendingCall) {
+        rawBuffer = stripPartialToolCall(rawBuffer);
+      }
       if (!pendingCall) {
         events.onToken(rawBuffer);
       }
@@ -199,7 +219,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
     events.onToolCall(callInfo(call));
     const startedAt = Date.now();
-    const { ok, result } = await executeCall(call, ctx.tools);
+    const { ok, result } = await executeCall(call, ctx.tools, ctx.signal);
     const durationMs = Date.now() - startedAt;
     if (ok && EXTERNAL_CONTENT_TOOLS.has(call.name)) {
       usedExternalContentThisTurn = true;

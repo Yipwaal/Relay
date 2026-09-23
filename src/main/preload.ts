@@ -2,12 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppDefaults,
   ChatMessage,
+  ChatStatusPayload,
   ChunkPayload,
   DocumentInfo,
   DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
   MemoryFact,
+  OllamaStatus,
   ToolCallPayload,
   ToolResultPayload,
 } from '../shared/ipc-types';
@@ -20,6 +22,15 @@ contextBridge.exposeInMainWorld('relay', {
     const requestId = crypto.randomUUID();
     ipcRenderer.send('relay:chat:send', { requestId, messages });
     return requestId;
+  },
+  stopMessage(requestId: string): void {
+    ipcRenderer.send('relay:chat:stop', requestId);
+  },
+  onStatus(callback: (payload: ChatStatusPayload) => void): void {
+    ipcRenderer.on('relay:chat:status', (_event, payload: ChatStatusPayload) => callback(payload));
+  },
+  ollamaStatus(): Promise<OllamaStatus> {
+    return ipcRenderer.invoke('relay:ollama:status');
   },
   onChunk(callback: (payload: ChunkPayload) => void): void {
     ipcRenderer.on('relay:chat:chunk', (_event, payload: ChunkPayload) => callback(payload));

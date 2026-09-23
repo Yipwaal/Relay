@@ -2,7 +2,7 @@ type ToolStatus = 'running' | 'done' | 'error';
 
 type DisplayMessage =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; model: string; streaming: boolean; failed: boolean }
+  | { kind: 'assistant'; text: string; model: string; streaming: boolean; failed: boolean; loadingModel: boolean }
   | {
       kind: 'tool';
       tool: string;
@@ -34,6 +34,7 @@ interface PendingRequest {
   conversationId: number;
   /** Assistant-bubbel die nu tokens ontvangt; null tussen twee segmenten (bv. rond een tool-aanroep). */
   segment: Extract<DisplayMessage, { kind: 'assistant' }> | null;
+  stopping: boolean;
 }
 
 interface IndexingState {

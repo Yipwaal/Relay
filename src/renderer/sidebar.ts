@@ -93,7 +93,7 @@ function renderHeader(): void {
   const c = activeConversation();
   if (!c) return;
   chatTitleEl.textContent = c.title;
-  const messageCount = c.display.filter((m) => m.kind !== 'tool').length;
+  const messageCount = c.display.filter((m) => m.kind === 'user' || (m.kind === 'assistant' && !m.failed)).length;
   const docCount = appState.documents.length;
   chatMetaEl.textContent = [
     messageCount > 0 ? countLabel(messageCount, 'bericht', 'berichten') : 'Nog geen berichten',

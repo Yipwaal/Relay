@@ -1,12 +1,14 @@
 import type {
   AppDefaults,
   ChatMessage,
+  ChatStatusPayload,
   ChunkPayload,
   DocumentInfo,
   DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
   MemoryFact,
+  OllamaStatus,
   ToolCallPayload,
   ToolPreviewItem,
   ToolResultPayload,
@@ -37,6 +39,9 @@ declare global {
   interface RelayAPI {
     defaults(): Promise<RelayAppDefaults>;
     sendMessage(messages: RelayChatMessage[]): string;
+    stopMessage(requestId: string): void;
+    onStatus(callback: (payload: ChatStatusPayload) => void): void;
+    ollamaStatus(): Promise<OllamaStatus>;
     onChunk(callback: (payload: ChunkPayload) => void): void;
     onToolCall(callback: (payload: ToolCallPayload) => void): void;
     onToolResult(callback: (payload: ToolResultPayload) => void): void;

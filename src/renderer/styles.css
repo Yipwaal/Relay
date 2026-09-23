@@ -765,6 +765,33 @@ button {
   overflow-wrap: anywhere;
 }
 
+.tool-raw {
+  padding-top: 10px;
+}
+
+.tool-raw summary {
+  cursor: pointer;
+  font: 700 11.5px/1.2 var(--font-body);
+  color: var(--text-muted);
+}
+
+.tool-raw summary:hover {
+  color: var(--text-2);
+}
+
+.tool-raw-text {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-2);
+  font: 400 11.5px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .tool-card-error {
   border-top: 1px solid var(--divider);
   padding: 10px 14px 12px 55px;

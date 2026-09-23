@@ -20,6 +20,13 @@ const TOOL_COMPACT_VERBS: Record<string, string> = {
 /** remember levert één regel op — daar is de volle kaart te groot voor (zie compactStyle in het design). */
 const COMPACT_TOOLS = new Set(['remember']);
 
+/**
+ * Externe inhoud (web, pagina's, documenten) staat standaard opengeklapt:
+ * CLAUDE.md eist dat de gebruiker ziet wat een tool opleverde vóórdat het
+ * model erop verdergaat, en daar zit het prompt-injection-risico.
+ */
+const AUTO_OPEN_TOOLS = new Set(['web_search', 'web_fetch', 'search_documents']);
+
 const renderedElements = new WeakMap<DisplayMessage, HTMLElement>();
 
 type ToolMessage = Extract<DisplayMessage, { kind: 'tool' }>;
@@ -43,8 +50,8 @@ function quoted(text: string): string {
 }
 
 function buildToolCard(m: ToolMessage): HTMLElement {
-  const hasPreview = m.status === 'done' && m.items.length > 0;
-  const card = h('div', { class: `tool-card is-${m.status}${m.open && hasPreview ? ' is-open' : ''}` });
+  const hasPreview = m.status === 'done' && (m.items.length > 0 || m.preview.length > 0);
+  const card = h('div', { class: `tool-card is-${m.status}${m.open && hasPreview ? ' is-open' : ''}`, title: m.label });
 
   const head = h('button', { class: 'tool-card-head', type: 'button' }, [
     h('span', { class: 'tool-glyph' }, [relayGlyph(20, true)]),
@@ -65,14 +72,17 @@ function buildToolCard(m: ToolMessage): HTMLElement {
   card.appendChild(head);
 
   if (hasPreview && m.open) {
+    const raw = h('details', { class: 'tool-raw' }, [
+      h('summary', { text: 'Toon exact wat het model ontvangt' }),
+      h('pre', { class: 'tool-raw-text', text: m.preview }),
+    ]);
     card.appendChild(
-      h(
-        'div',
-        { class: 'tool-card-preview' },
-        m.items.map((item) =>
+      h('div', { class: 'tool-card-preview' }, [
+        ...m.items.map((item) =>
           h('div', { class: 'tool-item' }, [h('span', { class: 'tool-item-src', text: item.src }), h('span', { class: 'tool-item-text', text: item.text })]),
         ),
-      ),
+        m.preview.length > 0 ? raw : null,
+      ]),
     );
   }
   if (m.status === 'error') {
@@ -83,7 +93,7 @@ function buildToolCard(m: ToolMessage): HTMLElement {
 
 function buildToolCompact(m: ToolMessage): HTMLElement {
   const verb = TOOL_COMPACT_VERBS[m.tool] ?? 'Tool-aanroep:';
-  return h('div', { class: `tool-compact is-${m.status}`, title: m.status === 'error' ? toolErrorText(m) : '' }, [
+  return h('div', { class: `tool-compact is-${m.status}`, title: m.status === 'error' ? toolErrorText(m) : m.label }, [
     h('span', { class: 'tool-glyph' }, [relayGlyph(14, false)]),
     h('span', { class: 'tool-compact-text', text: `${verb} ${quoted(m.query)}` }),
     h('span', { class: 'tool-status', text: toolStatusText(m) }),

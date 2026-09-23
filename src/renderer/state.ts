@@ -7,9 +7,12 @@ type DisplayMessage =
       kind: 'tool';
       tool: string;
       query: string;
+      label: string;
       status: ToolStatus;
       summary: string;
       items: RelayToolPreviewItem[];
+      /** De exacte (gesaneerde) tekst die het model kreeg. */
+      preview: string;
       durationMs: number;
       open: boolean;
     };

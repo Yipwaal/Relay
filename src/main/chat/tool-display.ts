@@ -65,10 +65,10 @@ export function describeResult(call: ToolCall, ok: boolean, result: unknown): st
 }
 
 /**
- * Fragmenten voor de inklapbare tool-kaart. Elk tekstveld gaat apart door
- * sanitizeExternalContent, net als het geheel dat het model krijgt — de
- * gebruiker ziet dus nooit minder dan het model (hooguit meer, omdat de
- * buitenste 8000-tekens-cap alleen op het model-bericht zit).
+ * Leesbare fragmenten voor de tool-kaart: per veld door sanitizeExternalContent
+ * en ingekort (max MAX_ITEMS × MAX_ITEM_CHARS). Dit is een samenvatting —
+ * de exacte tekst die het model krijgt gaat apart mee als `preview` en is in
+ * de kaart uit te klappen.
  */
 export function buildPreviewItems(call: ToolCall, ok: boolean, result: unknown): ToolPreviewItem[] {
   const record = asRecord(result);

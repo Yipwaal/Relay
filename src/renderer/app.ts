@@ -127,7 +127,18 @@ window.relay.onToolCall((payload) => {
   const match = pendingFor(payload.requestId);
   if (!match?.conversation) return;
   finishSegment(match.pending, match.conversation);
-  const tool: DisplayMessage = { kind: 'tool', tool: payload.tool, query: payload.query, status: 'running', summary: '', items: [], durationMs: 0, open: false };
+  const tool: DisplayMessage = {
+    kind: 'tool',
+    tool: payload.tool,
+    query: payload.query,
+    label: payload.label,
+    status: 'running',
+    summary: '',
+    items: [],
+    preview: '',
+    durationMs: 0,
+    open: AUTO_OPEN_TOOLS.has(payload.tool),
+  };
   match.conversation.display.push(tool);
   appendMessageElement(match.conversation.id, tool);
 });
@@ -140,6 +151,7 @@ window.relay.onToolResult((payload) => {
   running.status = payload.ok ? 'done' : 'error';
   running.summary = payload.summary;
   running.items = payload.items;
+  running.preview = payload.preview;
   running.durationMs = payload.durationMs;
   updateMessageElement(running);
 });

@@ -64,7 +64,7 @@
               <div id="doc-chips" class="doc-chips" hidden></div>
               <textarea id="chat-input" class="composer-input" placeholder="Stel een vraag..." rows="2"></textarea>
               <div class="composer-actions">
-                <button id="attach-button" class="icon-label-button" type="button" title="Document toevoegen (.txt, .md, .pdf, .docx)">
+                <button id="attach-button" class="icon-label-button" type="button" title="Document toevoegen aan dit gesprek (.txt, .md, .pdf, .docx)">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5"></path></svg>
                   <span>Document</span>
                 </button>
@@ -74,8 +74,19 @@
               </div>
             </div>
             <p id="composer-error" class="composer-error" role="alert" hidden></p>
+            <div class="empty-hint">Sleep een document hierheen om het aan dit gesprek toe te voegen.</div>
           </div>
           <div class="empty-spacer-bottom"></div>
+        </div>
+
+        <div id="drop-overlay" class="drop-overlay" hidden>
+          <div class="drop-zone">
+            <span class="drop-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 11v6M9 14l3-3 3 3"></path></svg>
+            </span>
+            <span class="drop-title">Laat los om toe te voegen aan dit gesprek</span>
+            <span class="drop-hint">Alleen voor dit gesprek · .txt, .md, .pdf, .docx</span>
+          </div>
         </div>
       </main>
     </div>
@@ -103,7 +114,7 @@
 
         <div class="settings-footer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5"></path></svg>
-          <span class="settings-footer-text">Documenten voeg je toe met de paperclip onder het invoerveld. Wijzigingen worden direct opgeslagen.</span>
+          <span class="settings-footer-text">Documenten staan niet meer hier: je voegt ze per gesprek toe met de paperclip onder het invoerveld. Wijzigingen worden direct opgeslagen.</span>
           <button id="close-settings-button" class="btn btn-secondary" type="button">Sluiten</button>
         </div>
       </div>
@@ -128,7 +139,9 @@
     <script src="./chat-view.js"></script>
     <script src="./sidebar.js"></script>
     <script src="./composer.js"></script>
+    <script src="./dropzone.js"></script>
     <script src="./settings.js"></script>
+    <script src="./conversations.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

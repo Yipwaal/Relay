@@ -44,6 +44,9 @@ export interface ToolResultInfo {
   durationMs: number;
 }
 
+/** Alles wat een tool-kaart nodig heeft; zo ook opgeslagen bij het tool-resultaat in de database. */
+export type ToolDisplay = ToolCallInfo & ToolResultInfo;
+
 export type ToolCallPayload = ToolCallInfo & { requestId: string };
 export type ToolResultPayload = ToolResultInfo & { requestId: string };
 
@@ -66,8 +69,30 @@ export interface DonePayload {
   requestId: string;
   /** true als de gebruiker de beurt met de stop-knop heeft afgebroken. */
   stopped: boolean;
-  /** Alle berichten die deze beurt aan de geschiedenis zijn toegevoegd (assistant + eventuele tool-berichten), in volgorde. */
-  appended: ChatMessage[];
+}
+
+export interface ConversationSummary {
+  id: number;
+  title: string;
+  model: string;
+  numCtx: number;
+  createdAt: number;
+  updatedAt: number;
+  /** Documenten die aan dít gesprek hangen (niet de globale uit Fase 4). */
+  documentCount: number;
+}
+
+/** Wat de UI van een opgeslagen bericht toont — de ruwe model-geschiedenis blijft in main. */
+export type ConversationMessage =
+  | { kind: 'user'; text: string }
+  | { kind: 'assistant'; text: string; model: string; interrupted: boolean }
+  | { kind: 'tool'; display: ToolDisplay }
+  | { kind: 'notice'; text: string };
+
+export interface ConversationUpdatedPayload {
+  id: number;
+  title: string;
+  updatedAt: number;
 }
 
 export interface ErrorPayload {
@@ -93,12 +118,15 @@ export interface DocumentInfo {
   embedModel: string;
   embedDims: number;
   createdAt: number;
+  /** null: toegevoegd vóór Fase 5, doorzoekbaar in elk gesprek. */
+  conversationId: number | null;
   /** true als embedModel niet meer overeenkomt met de huidig geconfigureerde embedModel — niet meer doorzoekbaar tot het opnieuw wordt toegevoegd. */
   outdated: boolean;
 }
 
 /** Geen requestId: main staat maar één document-toevoeging tegelijk toe, dus correlatie is niet nodig. */
 export interface DocumentProgressPayload {
+  conversationId: number;
   title: string;
   done: number;
   total: number;

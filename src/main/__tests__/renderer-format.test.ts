@@ -14,7 +14,6 @@ interface FormatModule {
   startedLabel(ts: number, now: number): string;
   formatSeconds(ms: number): string;
   formatBytes(bytes: number): string;
-  titleFromText(text: string): string;
   groupByDate<T extends { updatedAt: number }>(items: T[], now: number): Array<{ label: string; items: T[] }>;
 }
 
@@ -63,12 +62,6 @@ test('formatSeconds en formatBytes gebruiken een Nederlandse komma', () => {
   assert.equal(f.formatSeconds(420), '0,4 s');
   assert.equal(f.formatBytes(1_200_000), '1,2 MB');
   assert.equal(f.formatBytes(312_000), '312 kB');
-});
-
-test('titleFromText kapt af op een woordgrens', () => {
-  assert.equal(f.titleFromText('Korte vraag?'), 'Korte vraag?');
-  assert.equal(f.titleFromText('Wat is de opzegtermijn als ik als huurder wil stoppen?'), 'Wat is de opzegtermijn als ik als…');
-  assert.equal(f.titleFromText('   \n  '), 'Nieuw gesprek');
 });
 
 test('groupByDate sorteert nieuwste eerst en laat lege groepen weg', () => {

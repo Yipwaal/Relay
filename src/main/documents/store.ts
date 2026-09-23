@@ -15,6 +15,8 @@ export interface DocumentRecord {
   embedModel: string;
   embedDims: number;
   createdAt: number;
+  /** null: toegevoegd vóór Fase 5 en doorzoekbaar in elk gesprek. */
+  conversationId: number | null;
 }
 
 export interface DocumentChunkInput {
@@ -23,6 +25,7 @@ export interface DocumentChunkInput {
 }
 
 export interface AddDocumentInput {
+  conversationId: number;
   title: string;
   contentHash: string;
   charCount: number;
@@ -38,12 +41,17 @@ export interface SearchResultChunk {
   score: number;
 }
 
+/**
+ * Alles is per gesprek: een gesprek ziet zijn eigen documenten plus de
+ * globale (conversation_id NULL) van vóór Fase 5.
+ */
 export interface DocumentStore {
-  listDocuments(): DocumentRecord[];
+  listDocuments(conversationId: number): DocumentRecord[];
+  getDocument(id: number): DocumentRecord | undefined;
   addDocument(input: AddDocumentInput): DocumentRecord;
   deleteDocument(id: number): void;
-  search(queryVector: Float32Array, embedModel: string, k: number): SearchResultChunk[];
-  hasDocumentsForModel(embedModel: string): boolean;
+  search(queryVector: Float32Array, embedModel: string, k: number, conversationId: number): SearchResultChunk[];
+  hasDocumentsForModel(embedModel: string, conversationId: number): boolean;
 }
 
 interface DocumentRow {
@@ -55,6 +63,7 @@ interface DocumentRow {
   embed_model: string;
   embed_dims: number;
   created_at: number;
+  conversation_id: number | null;
 }
 
 interface ChunkRow {
@@ -74,15 +83,18 @@ function toDocumentRecord(row: DocumentRow): DocumentRecord {
     embedModel: row.embed_model,
     embedDims: row.embed_dims,
     createdAt: row.created_at,
+    conversationId: row.conversation_id,
   };
 }
 
 export function createDocumentStore(db: DatabaseSync): DocumentStore {
-  const listStmt = db.prepare('SELECT * FROM documents ORDER BY created_at DESC, id DESC');
-  const selectByHashStmt = db.prepare('SELECT * FROM documents WHERE content_hash = ?');
+  const VISIBLE_IN = '(conversation_id = ? OR conversation_id IS NULL)';
+  const listStmt = db.prepare(`SELECT * FROM documents WHERE ${VISIBLE_IN} ORDER BY created_at, id`);
+  const getStmt = db.prepare('SELECT * FROM documents WHERE id = ?');
+  const selectVisibleByHashStmt = db.prepare(`SELECT * FROM documents WHERE content_hash = ? AND ${VISIBLE_IN}`);
   const insertDocStmt = db.prepare(
-    `INSERT INTO documents (title, content_hash, char_count, chunk_count, embed_model, embed_dims, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO documents (title, content_hash, char_count, chunk_count, embed_model, embed_dims, created_at, conversation_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertChunkStmt = db.prepare('INSERT INTO document_chunks (document_id, ordinal, text, embedding) VALUES (?, ?, ?, ?)');
   const deleteDocStmt = db.prepare('DELETE FROM documents WHERE id = ?');
@@ -91,17 +103,22 @@ export function createDocumentStore(db: DatabaseSync): DocumentStore {
             documents.id AS document_id, documents.title AS document_title
      FROM document_chunks
      JOIN documents ON documents.id = document_chunks.document_id
-     WHERE documents.embed_model = ?`,
+     WHERE documents.embed_model = ? AND (documents.conversation_id = ? OR documents.conversation_id IS NULL)`,
   );
-  const countForModelStmt = db.prepare('SELECT COUNT(*) AS n FROM documents WHERE embed_model = ?');
+  const countForModelStmt = db.prepare(`SELECT COUNT(*) AS n FROM documents WHERE embed_model = ? AND ${VISIBLE_IN}`);
 
   return {
-    listDocuments(): DocumentRecord[] {
-      return (listStmt.all() as unknown as DocumentRow[]).map(toDocumentRecord);
+    listDocuments(conversationId: number): DocumentRecord[] {
+      return (listStmt.all(conversationId) as unknown as DocumentRow[]).map(toDocumentRecord);
+    },
+
+    getDocument(id: number): DocumentRecord | undefined {
+      const row = getStmt.get(id) as unknown as DocumentRow | undefined;
+      return row ? toDocumentRecord(row) : undefined;
     },
 
     addDocument(input: AddDocumentInput): DocumentRecord {
-      const existing = selectByHashStmt.get(input.contentHash) as unknown as DocumentRow | undefined;
+      const existing = selectVisibleByHashStmt.get(input.contentHash, input.conversationId) as unknown as DocumentRow | undefined;
       if (existing) {
         throw new Error(`Dit document ("${existing.title}") is al toegevoegd.`);
       }
@@ -112,8 +129,17 @@ export function createDocumentStore(db: DatabaseSync): DocumentStore {
       const now = Date.now();
       db.exec('BEGIN');
       try {
-        insertDocStmt.run(input.title, input.contentHash, input.charCount, input.chunks.length, input.embedModel, input.embedDims, now);
-        const row = selectByHashStmt.get(input.contentHash) as unknown as DocumentRow;
+        const inserted = insertDocStmt.run(
+          input.title,
+          input.contentHash,
+          input.charCount,
+          input.chunks.length,
+          input.embedModel,
+          input.embedDims,
+          now,
+          input.conversationId,
+        );
+        const row = getStmt.get(Number(inserted.lastInsertRowid)) as unknown as DocumentRow;
 
         input.chunks.forEach((chunk, ordinal) => {
           const blob = floatsToBlob(normalize(chunk.embedding));
@@ -132,8 +158,8 @@ export function createDocumentStore(db: DatabaseSync): DocumentStore {
       deleteDocStmt.run(id);
     },
 
-    search(queryVector: Float32Array, embedModel: string, k: number): SearchResultChunk[] {
-      const rows = chunksForModelStmt.all(embedModel) as unknown as ChunkRow[];
+    search(queryVector: Float32Array, embedModel: string, k: number, conversationId: number): SearchResultChunk[] {
+      const rows = chunksForModelStmt.all(embedModel, conversationId) as unknown as ChunkRow[];
       if (rows.length === 0) return [];
 
       const normalizedQuery = normalize(queryVector);
@@ -146,8 +172,8 @@ export function createDocumentStore(db: DatabaseSync): DocumentStore {
       });
     },
 
-    hasDocumentsForModel(embedModel: string): boolean {
-      const row = countForModelStmt.get(embedModel) as unknown as { n: number };
+    hasDocumentsForModel(embedModel: string, conversationId: number): boolean {
+      const row = countForModelStmt.get(embedModel, conversationId) as unknown as { n: number };
       return row.n > 0;
     },
   };

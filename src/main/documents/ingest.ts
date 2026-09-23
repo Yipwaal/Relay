@@ -16,6 +16,7 @@ const MAX_EXTRACTED_CHARS = 1_000_000;
 const EXTRACT_TIMEOUT_MS = 30_000;
 
 export interface IngestInput {
+  conversationId: number;
   filePath: string;
   buffer: Buffer;
   title: string;
@@ -64,6 +65,7 @@ export async function ingestDocument(
   const embedDims = embeddings[0]?.length ?? 0;
 
   return store.addDocument({
+    conversationId: input.conversationId,
     title: input.title,
     contentHash,
     charCount: text.length,

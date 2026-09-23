@@ -165,3 +165,31 @@ test('runAgentTurn staat remember toe als er geen web-tool in deze beurt gebruik
     restore();
   }
 });
+
+test('onAppend krijgt per iteratie één batch: assistant-aanroep + tool-resultaat met kaartgegevens', async () => {
+  const restore = mockFetchSequence([nativeToolCallBody('web_search', { query: 'weer' }), finalAnswerBody('Het wordt zonnig.')]);
+  try {
+    const tools = new Map<string, ToolDefinition>();
+    tools.set('web_search', {
+      name: 'web_search',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        return { results: [{ title: 'Weer', url: 'https://knmi.nl/x', snippet: 'zonnig' }] };
+      },
+    });
+    const batches: Array<Array<{ role: string; tool?: string; interrupted?: boolean }>> = [];
+    const { events } = collectingEvents();
+    await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'weer?' }], {
+      ...events,
+      onAppend: (entries) => batches.push(entries.map((e) => ({ role: e.message.role, tool: e.tool?.tool, interrupted: e.interrupted }))),
+    });
+
+    assert.deepEqual(batches, [
+      [{ role: 'assistant', tool: undefined, interrupted: undefined }, { role: 'tool', tool: 'web_search', interrupted: undefined }],
+      [{ role: 'assistant', tool: undefined, interrupted: false }],
+    ]);
+  } finally {
+    restore();
+  }
+});

@@ -24,19 +24,3 @@ export function sanitizeExternalContent(text: string): string {
     ? `${stripped.slice(0, MAX_TOOL_RESULT_CHARS)}\n[...ingekort...]`
     : stripped;
 }
-
-interface SanitizableMessage {
-  role: string;
-  content: string;
-}
-
-/**
- * Saneert elk 'tool'-bericht in een lijst (bv. geschiedenis die de renderer
- * bij een chat:send meestuurt). Zonder deze stap zou een gecompromitteerde
- * renderer een nagemaakt tool-bericht met een vervalste protocol-marker
- * kunnen laten passeren zonder ooit via een echte tool-uitvoering (en dus
- * zonder via sanitizeExternalContent) te gaan.
- */
-export function sanitizeIncomingToolMessages<T extends SanitizableMessage>(messages: T[]): T[] {
-  return messages.map((m) => (m.role === 'tool' ? { ...m, content: sanitizeExternalContent(m.content) } : m));
-}

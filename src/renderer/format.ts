@@ -73,15 +73,6 @@ function formatBytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1e3))} kB`;
 }
 
-/** Eerste regel van het eerste bericht als voorlopige titel, afgekapt op ~40 tekens. */
-function titleFromText(text: string): string {
-  const firstLine = text.trim().split('\n')[0]?.trim() ?? '';
-  if (firstLine.length <= 40) return firstLine || 'Nieuw gesprek';
-  const cut = firstLine.slice(0, 38);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${(lastSpace > 20 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
-}
-
 /** Groepeert op datumlabel in vaste volgorde, nieuwste eerst binnen elke groep; lege groepen vallen weg. */
 function groupByDate<T extends { updatedAt: number }>(items: T[], now: number): Array<{ label: DateGroupLabel; items: T[] }> {
   const sorted = [...items].sort((a, b) => b.updatedAt - a.updatedAt);

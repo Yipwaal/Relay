@@ -4,11 +4,13 @@ import { abortAllChatRequests, registerChatHandler } from './ipc/chat-handler';
 import { registerMemoryHandlers } from './ipc/memory-handler';
 import { registerDocumentsHandlers } from './ipc/documents-handler';
 import { registerOllamaHandlers } from './ipc/ollama-handler';
+import { registerConversationsHandlers } from './ipc/conversations-handler';
 import { openRelayDb } from './db';
 import { loadConfig } from './config';
 import { createBeforeQuitHandler } from './quit';
 import { createMemoryStore } from './memory/store';
 import { createDocumentStore } from './documents/store';
+import { createConversationStore } from './conversations/store';
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -44,10 +46,12 @@ app.whenReady().then(() => {
   const db = openRelayDb(dbPath);
   const memoryStore = createMemoryStore(db);
   const documentStore = createDocumentStore(db);
+  const conversationStore = createConversationStore(db);
 
-  registerChatHandler(memoryStore, documentStore);
+  registerChatHandler({ conversationStore, memoryStore, documentStore });
+  registerConversationsHandlers(conversationStore);
   registerMemoryHandlers(memoryStore);
-  registerDocumentsHandlers(documentStore);
+  registerDocumentsHandlers(documentStore, conversationStore);
   registerOllamaHandlers();
   createWindow();
 

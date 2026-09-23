@@ -1,8 +1,10 @@
 import type {
   AppDefaults,
-  ChatMessage,
   ChatStatusPayload,
   ChunkPayload,
+  ConversationMessage,
+  ConversationSummary,
+  ConversationUpdatedPayload,
   DocumentInfo,
   DocumentProgressPayload,
   DonePayload,
@@ -15,11 +17,21 @@ import type {
 } from '../shared/ipc-types';
 
 declare global {
-  type RelayChatMessage = ChatMessage;
   type RelayMemoryFact = MemoryFact;
   type RelayDocumentInfo = DocumentInfo;
   type RelayToolPreviewItem = ToolPreviewItem;
   type RelayAppDefaults = AppDefaults;
+  type RelayConversationSummary = ConversationSummary;
+  type RelayConversationMessage = ConversationMessage;
+
+  interface RelayConversationsAPI {
+    list(): Promise<RelayConversationSummary[]>;
+    create(): Promise<RelayConversationSummary>;
+    rename(id: number, title: string): Promise<RelayConversationSummary>;
+    remove(id: number): Promise<void>;
+    messages(id: number): Promise<RelayConversationMessage[]>;
+    onUpdated(callback: (payload: ConversationUpdatedPayload) => void): void;
+  }
 
   interface RelayMemoryAPI {
     list(): Promise<RelayMemoryFact[]>;
@@ -29,24 +41,27 @@ declare global {
   }
 
   interface RelayDocumentsAPI {
-    list(): Promise<RelayDocumentInfo[]>;
+    list(conversationId: number): Promise<RelayDocumentInfo[]>;
     /** Opent een native bestandskiezer (main); geeft null terug als de gebruiker annuleert. */
-    add(): Promise<RelayDocumentInfo | null>;
+    add(conversationId: number): Promise<RelayDocumentInfo | null>;
+    /** Voor slepen: alleen naam + inhoud van het gesleepte bestand, nooit een pad. */
+    addDropped(conversationId: number, name: string, data: Uint8Array): Promise<RelayDocumentInfo>;
     remove(id: number): Promise<void>;
     onProgress(callback: (payload: DocumentProgressPayload) => void): void;
   }
 
   interface RelayAPI {
     defaults(): Promise<RelayAppDefaults>;
-    sendMessage(messages: RelayChatMessage[]): string;
+    sendMessage(conversationId: number, text: string): string;
     stopMessage(requestId: string): void;
-    onStatus(callback: (payload: ChatStatusPayload) => void): void;
     ollamaStatus(): Promise<OllamaStatus>;
+    onStatus(callback: (payload: ChatStatusPayload) => void): void;
     onChunk(callback: (payload: ChunkPayload) => void): void;
     onToolCall(callback: (payload: ToolCallPayload) => void): void;
     onToolResult(callback: (payload: ToolResultPayload) => void): void;
     onDone(callback: (payload: DonePayload) => void): void;
     onError(callback: (payload: ErrorPayload) => void): void;
+    conversations: RelayConversationsAPI;
     memory: RelayMemoryAPI;
     documents: RelayDocumentsAPI;
   }

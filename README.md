@@ -13,7 +13,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 2 — Web search + fetch (tool calling)
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
-- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓)
+- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓)
 
 ## Vereisten
 
@@ -79,10 +79,19 @@ src/
     ollama-client.ts   Streaming NDJSON-client voor Ollama's /api/chat
     ollama-embed.ts    Client voor Ollama's /api/embed (document-embeddings, Fase 4)
     preload.ts         contextBridge-API voor de renderer
+    quit.ts            before-quit: lopende beurten afbreken, modellen unloaden, db sluiten
+    ollama-lifecycle.ts  /api/ps, unload (keep_alive: 0), ping
+    ollama-errors.ts   Vertaalt "Ollama draait niet" naar een begrijpelijke melding
     ipc/
       chat-handler.ts    IPC-validatie + wiring tussen renderer en agent-loop
       memory-handler.ts   invoke/handle-CRUD voor het geheugen-instellingenscherm
-      documents-handler.ts invoke/handle-CRUD + dialog.showOpenDialog voor documenten
+      documents-handler.ts Documenten per gesprek: dialoog (paperclip) of gesleepte bytes
+      conversations-handler.ts Gesprekken: lijst, nieuw, hernoemen, verwijderen, berichten
+      ollama-handler.ts    Status van de lokale Ollama voor de sidebar
+    conversations/
+      store.ts         Gesprekken + berichten (één rij per model-bericht + kaartgegevens)
+      history.ts       Rijen → modelgeschiedenis (per tool-modus) en → wat de UI toont
+      title.ts         Voorlopige titel + korte samenvatting door hetzelfde lokale model
     chat/
       agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
@@ -112,7 +121,9 @@ src/
     state.ts       Gedeelde renderer-state + gespreksopslag
     chat-view.ts   Berichten, streaming-bubbels, inklapbare tool-kaarten
     sidebar.ts     Gesprekkenlijst per datumgroep, hernoemen, verwijderdialoog, header
-    composer.ts    Invoerveld, document-chips met voortgang, paperclip
+    composer.ts    Invoerveld, stop-knop, document-chips met voortgang, paperclip
+    dropzone.ts    Bestanden op het chatvenster slepen (overlay)
+    conversations.ts  Gesprek kiezen/maken/hernoemen/verwijderen, berichten lazy laden
     settings.ts    Instellingendialoog (geheugen)
     app.ts         Wiring: IPC-events, sneltoetsen, opstarten
   shared/      IPC-typedefinities die de preload-grens passeren
@@ -409,4 +420,43 @@ minder ziet dan het model.
 - **Model wordt geladen**: staat het model nog niet in het geheugen
   (`/api/ps`), dan toont de UI "wordt geladen…" tot de eerste token binnen
   is — bij een 12B-model kan dat tientallen seconden duren.
+
+### Meerdere gesprekken en documenten per gesprek
+
+Gesprekken staan in SQLite (migratie v3, één transactie): `conversations`
+(titel, model, `num_ctx`, tijden) en `messages` met **één rij per bericht
+zoals het naar het model ging** (inclusief native `tool_calls` en het ruwe
+prompt-protocol) plus een `display`-kolom met de gegevens van de
+tool-kaart. De modelgeschiedenis wordt daar 1-op-1 uit herbouwd, en wat de
+UI toont is een projectie van dezelfde rijen — er zijn geen twee versies die
+uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
+
+- **Main is de bron van waarheid.** `relay:chat:send` bevat alleen nog
+  `{requestId, conversationId, text}`; main leest de geschiedenis zelf uit de
+  database. Een gecompromitteerde renderer kan dus geen nagemaakte
+  tool-resultaten of assistant-berichten meer in een gesprek smokkelen
+  (`sanitizeIncomingToolMessages` is daarmee overbodig geworden en weg).
+- **Opslaan per iteratie**: de agent-loop levert per iteratie één batch
+  (assistant-bericht + bijbehorend tool-resultaat) die in één transactie
+  wordt weggeschreven. Een tool-aanroep staat zo nooit zonder resultaat in
+  de database, en een fout halverwege laat eerdere stappen staan. Een
+  foutmelding wordt als `notice` bewaard (zichtbaar, maar nooit naar het
+  model); een gestopt antwoord als `interrupted`.
+- **Titels**: na het eerste bericht meteen een voorlopige titel (eerste ~40
+  tekens), na de eerste beurt één korte, niet-streamende aanroep naar
+  hetzelfde (al geladen) model om het in 3–5 woorden samen te vatten.
+  Hernoemen (dubbelklik, rechtsklik of het potlood) wint altijd: de
+  automatische titel overschrijft alleen als `title_is_custom = 0`.
+- **Documenten per gesprek**: `documents.conversation_id` (nullable, met
+  `ON DELETE CASCADE`). Documenten uit Fase 4 hebben `NULL` en blijven in
+  elk gesprek doorzoekbaar (chip: "alle gesprekken"). Hetzelfde bestand mag
+  in meerdere gesprekken; binnen één gesprek of naast een globale kopie niet
+  (twee unieke indexen, want SQLite ziet NULLs als verschillend).
+  `search_documents` zoekt alleen in het eigen gesprek plus de globale
+  documenten, en is alleen beschikbaar als die er zijn. Een gesprek
+  verwijderen verwijdert zijn eigen documenten mee; de dialoog zegt dat.
+- **Slepen** (naast de paperclip): de renderer stuurt alleen de
+  bestandsnaam en de bytes van het gesleepte bestand. Main leest daarvoor
+  niets van schijf, dus ook zo kan de renderer geen willekeurig pad laten
+  inlezen; dezelfde type- en groottegrenzen gelden (`.pdf`/`.docx` 5 MB).
 

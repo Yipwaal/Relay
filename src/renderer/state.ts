@@ -17,16 +17,11 @@ type DisplayMessage =
       open: boolean;
     };
 
-interface ConversationView {
-  id: number;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
-  model: string;
-  /** Wat naar main gaat bij de volgende beurt (incl. tool-berichten voor het model). */
-  history: RelayChatMessage[];
-  /** Wat de gebruiker ziet: bubbels en tool-kaarten. */
+/** De modelgeschiedenis zelf blijft in main (database); de renderer houdt alleen bij wat hij toont. */
+interface ConversationView extends RelayConversationSummary {
   display: DisplayMessage[];
+  /** false tot de berichten van dit gesprek één keer uit de database zijn geladen. */
+  loaded: boolean;
 }
 
 interface PendingRequest {
@@ -38,6 +33,7 @@ interface PendingRequest {
 }
 
 interface IndexingState {
+  conversationId: number;
   title: string;
   done: number;
   total: number;
@@ -47,6 +43,7 @@ const appState = {
   conversations: [] as ConversationView[],
   activeId: 0,
   defaults: { model: '', numCtx: 0 } as RelayAppDefaults,
+  /** Documenten die in het actieve gesprek doorzoekbaar zijn (eigen + globale). */
   documents: [] as RelayDocumentInfo[],
   indexing: null as IndexingState | null,
   pending: null as PendingRequest | null,
@@ -63,21 +60,28 @@ function conversationById(id: number): ConversationView | undefined {
   return appState.conversations.find((c) => c.id === id);
 }
 
-// Gesprekken leven voorlopig alleen in het geheugen van de renderer; de
-// async-vorm is alvast gelijk aan wat de database-variant straks nodig heeft.
-let nextConversationId = 1;
-
-interface ConversationStore {
-  create(model: string): Promise<ConversationView>;
-  rename(id: number, title: string): Promise<void>;
-  remove(id: number): Promise<void>;
+function toConversationView(summary: RelayConversationSummary): ConversationView {
+  return { ...summary, display: [], loaded: false };
 }
 
-const conversationStore: ConversationStore = {
-  async create(model) {
-    const now = Date.now();
-    return { id: nextConversationId++, title: 'Nieuw gesprek', createdAt: now, updatedAt: now, model, history: [], display: [] };
-  },
-  async rename() {},
-  async remove() {},
-};
+function toDisplayMessage(m: RelayConversationMessage): DisplayMessage {
+  if (m.kind === 'user') return { kind: 'user', text: m.text };
+  if (m.kind === 'notice') return { kind: 'assistant', text: m.text, model: '', streaming: false, failed: true, loadingModel: false };
+  if (m.kind === 'assistant') {
+    return { kind: 'assistant', text: m.interrupted ? `${m.text} …` : m.text, model: m.model, streaming: false, failed: false, loadingModel: false };
+  }
+  const d = m.display;
+  return {
+    kind: 'tool',
+    tool: d.tool,
+    query: d.query,
+    label: d.label,
+    status: d.ok ? 'done' : 'error',
+    summary: d.summary,
+    items: d.items,
+    preview: d.preview,
+    durationMs: d.durationMs,
+    // Eerder bekeken resultaten ingeklapt; nieuwe (live) kaarten met externe inhoud staan open.
+    open: false,
+  };
+}

@@ -17,6 +17,57 @@ function getUserVersion(db: DatabaseSync): number {
   return row.user_version;
 }
 
+/**
+ * v3 (Fase 5): gesprekken + berichten, en documenten per gesprek. Eén
+ * transactie inclusief user_version (die is transactioneel), zodat een
+ * afgebroken migratie niets half achterlaat. Geen table-rebuild nodig:
+ * ADD COLUMN met REFERENCES mag zolang de default NULL is. Bestaande
+ * documenten krijgen conversation_id NULL en blijven in elk gesprek
+ * doorzoekbaar; de gedeeltelijke unieke index vangt dubbele globale
+ * documenten af (SQLite ziet NULLs in een gewone unieke index als verschillend).
+ */
+function migrateToV3(db: DatabaseSync): void {
+  db.exec('BEGIN');
+  try {
+    db.exec(`
+      CREATE TABLE conversations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        title           TEXT    NOT NULL,
+        title_is_custom INTEGER NOT NULL DEFAULT 0,
+        model           TEXT    NOT NULL,
+        num_ctx         INTEGER NOT NULL,
+        created_at      INTEGER NOT NULL,
+        updated_at      INTEGER NOT NULL
+      )
+    `);
+    db.exec(`
+      CREATE TABLE messages (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        role            TEXT    NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+        kind            TEXT    NOT NULL CHECK (kind IN ('user', 'assistant', 'tool_result', 'notice')),
+        content         TEXT    NOT NULL,
+        tool_calls      TEXT,
+        tool_name       TEXT,
+        display         TEXT,
+        model           TEXT,
+        status          TEXT    NOT NULL DEFAULT 'complete' CHECK (status IN ('complete', 'interrupted', 'error')),
+        created_at      INTEGER NOT NULL
+      )
+    `);
+    db.exec('CREATE INDEX messages_conversation_idx ON messages(conversation_id, id)');
+    db.exec('ALTER TABLE documents ADD COLUMN conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE');
+    db.exec('DROP INDEX IF EXISTS documents_content_hash_unique');
+    db.exec('CREATE UNIQUE INDEX documents_conversation_hash_unique ON documents(conversation_id, content_hash)');
+    db.exec('CREATE UNIQUE INDEX documents_global_hash_unique ON documents(content_hash) WHERE conversation_id IS NULL');
+    db.exec('PRAGMA user_version = 3');
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 export function openRelayDb(filePath: string): DatabaseSync {
   const db = new DatabaseSync(filePath);
   db.exec('PRAGMA foreign_keys = ON');
@@ -62,6 +113,10 @@ export function openRelayDb(filePath: string): DatabaseSync {
       )
     `);
     db.exec('PRAGMA user_version = 2');
+  }
+
+  if (version < 3) {
+    migrateToV3(db);
   }
 
   return db;

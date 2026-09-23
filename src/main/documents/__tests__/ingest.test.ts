@@ -21,6 +21,7 @@ function fakeStore(): { store: DocumentStore; added: AddDocumentInput[] } {
   const added: AddDocumentInput[] = [];
   const store: DocumentStore = {
     listDocuments: () => [],
+    getDocument: () => undefined,
     addDocument: (input: AddDocumentInput): DocumentRecord => {
       added.push(input);
       return {
@@ -32,6 +33,7 @@ function fakeStore(): { store: DocumentStore; added: AddDocumentInput[] } {
         embedModel: input.embedModel,
         embedDims: input.embedDims,
         createdAt: Date.now(),
+        conversationId: input.conversationId,
       };
     },
     deleteDocument: () => {},
@@ -46,6 +48,7 @@ test('ingestDocument extraheert, chunkt, embedt en slaat op', async () => {
   const { embedder } = fakeEmbedder();
 
   const record = await ingestDocument(store, embedder, 'test-embed', {
+    conversationId: 1,
     filePath: 'notitie.txt',
     buffer: Buffer.from('Dit is een test-document met wat inhoud.', 'utf-8'),
     title: 'notitie.txt',
@@ -67,7 +70,7 @@ test('ingestDocument rapporteert voortgang per batch', async () => {
   const buffer = Buffer.from(paragraphs.join('\n\n'), 'utf-8');
 
   const progressUpdates: Array<{ done: number; total: number }> = [];
-  await ingestDocument(store, embedder, 'm', { filePath: 'groot.txt', buffer, title: 'groot.txt' }, (p) =>
+  await ingestDocument(store, embedder, 'm', { conversationId: 1, filePath: 'groot.txt', buffer, title: 'groot.txt' }, (p) =>
     progressUpdates.push(p),
   );
 
@@ -82,7 +85,7 @@ test('ingestDocument gooit een fout voor een document dat te groot is na extract
 
   const hugeText = 'a'.repeat(1_000_001);
   await assert.rejects(
-    () => ingestDocument(store, embedder, 'm', { filePath: 'enorm.txt', buffer: Buffer.from(hugeText), title: 'enorm.txt' }),
+    () => ingestDocument(store, embedder, 'm', { conversationId: 1, filePath: 'enorm.txt', buffer: Buffer.from(hugeText), title: 'enorm.txt' }),
     /te groot na extractie/,
   );
 });
@@ -92,7 +95,7 @@ test('ingestDocument gooit een fout voor een document zonder bruikbare tekst', a
   const { embedder } = fakeEmbedder();
 
   await assert.rejects(
-    () => ingestDocument(store, embedder, 'm', { filePath: 'leeg.txt', buffer: Buffer.from('   \n\n  '), title: 'leeg.txt' }),
+    () => ingestDocument(store, embedder, 'm', { conversationId: 1, filePath: 'leeg.txt', buffer: Buffer.from('   \n\n  '), title: 'leeg.txt' }),
     /geen bruikbare tekst/,
   );
 });
@@ -102,8 +105,8 @@ test('ingestDocument berekent content_hash consistent op basis van de bytes', as
   const { embedder } = fakeEmbedder();
 
   const buffer = Buffer.from('Zelfde inhoud', 'utf-8');
-  await ingestDocument(store, embedder, 'm', { filePath: 'a.txt', buffer, title: 'a.txt' });
-  await ingestDocument(store, embedder, 'm', { filePath: 'b.txt', buffer: Buffer.from(buffer), title: 'b.txt' });
+  await ingestDocument(store, embedder, 'm', { conversationId: 1, filePath: 'a.txt', buffer, title: 'a.txt' });
+  await ingestDocument(store, embedder, 'm', { conversationId: 1, filePath: 'b.txt', buffer: Buffer.from(buffer), title: 'b.txt' });
 
   assert.equal(added[0]?.contentHash, added[1]?.contentHash);
 });

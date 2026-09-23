@@ -8,7 +8,10 @@ const deleteConfirmButton = document.getElementById('delete-confirm-button') as 
 const deleteCancelButton = document.getElementById('delete-cancel-button') as HTMLButtonElement;
 
 function conversationMeta(c: ConversationView, now: number): string {
-  return `${c.model} · ${c.history.length === 0 && c.display.length === 0 ? 'nu' : sidebarTimeLabel(c.updatedAt, now)}`;
+  const fresh = c.updatedAt === c.createdAt && now - c.createdAt < 60_000;
+  const parts = [c.model, fresh ? 'nu' : sidebarTimeLabel(c.updatedAt, now)];
+  if (c.documentCount > 0) parts.push(countLabel(c.documentCount, 'document', 'documenten'));
+  return parts.join(' · ');
 }
 
 function buildRenameInput(c: ConversationView): HTMLInputElement {
@@ -23,7 +26,7 @@ function buildRenameInput(c: ConversationView): HTMLInputElement {
     const title = input.value.trim();
     if (commit && title.length > 0 && title !== c.title) {
       c.title = title;
-      void conversationStore.rename(c.id, title).catch((error: unknown) => showComposerError(describeUnknownError(error)));
+      void renameConversation(c, title);
     }
     renderSidebar();
     renderHeader();
@@ -97,7 +100,7 @@ function renderHeader(): void {
   const docCount = appState.documents.length;
   chatMetaEl.textContent = [
     messageCount > 0 ? countLabel(messageCount, 'bericht', 'berichten') : 'Nog geen berichten',
-    docCount > 0 ? `${countLabel(docCount, 'document', 'documenten')} doorzoekbaar` : 'geen documenten',
+    docCount > 0 ? `${countLabel(docCount, 'document', 'documenten')} in dit gesprek` : 'geen documenten',
     `gestart ${startedLabel(c.createdAt, Date.now())}`,
   ].join(' · ');
 }
@@ -111,7 +114,13 @@ function askDeleteConversation(id: number): void {
   const c = conversationById(id);
   if (!c) return;
   appState.deleteId = id;
-  deleteTextEl.textContent = `“${c.title}” wordt verwijderd. Dit kan niet ongedaan worden gemaakt.`;
+  const docs =
+    c.documentCount === 0
+      ? ''
+      : c.documentCount === 1
+        ? ', samen met het document dat eraan hangt'
+        : `, samen met de ${countLabel(c.documentCount, 'document', 'documenten')} die eraan hangen`;
+  deleteTextEl.textContent = `“${c.title}” wordt verwijderd${docs}. Dit kan niet ongedaan worden gemaakt.`;
   deleteDialog.showModal();
 }
 

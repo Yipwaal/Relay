@@ -1,5 +1,5 @@
 import { streamChat } from '../ollama-client';
-import type { ChatMessage, ToolCallInfo, ToolResultInfo } from '../../shared/ipc-types';
+import type { ChatMessage, ToolCallInfo, ToolDisplay, ToolResultInfo } from '../../shared/ipc-types';
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
@@ -27,11 +27,27 @@ export interface AgentContext {
   signal?: AbortSignal;
 }
 
+/** Eén bericht dat deze beurt aan de geschiedenis is toegevoegd, met wat de UI erover moet weten. */
+export interface AppendedEntry {
+  message: ChatMessage;
+  /** Alleen bij een tool-resultaat: de gegevens voor de tool-kaart. */
+  tool?: ToolDisplay;
+  /** Assistant-tekst die door de stop-knop halverwege is afgebroken. */
+  interrupted?: boolean;
+}
+
 export interface AgentEvents {
   onToken(text: string): void;
   onToolCall(info: ToolCallInfo): void;
   /** info.preview: de exacte (gesaneerde) inhoud die het model krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
   onToolResult(info: ToolResultInfo): void;
+  /**
+   * Per iteratie één batch (assistant-bericht + bijbehorend tool-resultaat),
+   * zodat de aanroeper die atomair kan opslaan: een tool-aanroep staat nooit
+   * zonder resultaat in de database, en al uitgevoerde neveneffecten
+   * (remember) gaan niet verloren als een latere iteratie faalt.
+   */
+  onAppend?(entries: AppendedEntry[]): void;
 }
 
 async function executeCall(
@@ -56,15 +72,6 @@ async function executeCall(
   }
 }
 
-/**
- * Voert één gebruikersbeurt van de function-calling-loop uit: stuurt berichten
- * naar Ollama, herkent tool-aanroepen (native tool_calls, of — als het model
- * dat niet ondersteunt — het prompt-fallback-protocol uit tool-protocol.ts),
- * voert ze uit en stuurt het resultaat terug, tot het model klaar is of een
- * guard (max iteraties, dubbele aanroep) ingrijpt. Geeft alle in deze beurt
- * toegevoegde berichten terug (assistant + eventuele tool-berichten) zodat de
- * aanroeper (ipc/chat-handler.ts) de renderer-geschiedenis kan bijwerken.
- */
 const REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE =
   'remember geweigerd: er is deze beurt al web_search/web_fetch/search_documents gebruikt. Vraag de gebruiker ' +
   'expliciet te bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
@@ -79,9 +86,29 @@ function failure(summary: string, preview: string): ToolResultInfo {
   return { summary, ok: false, preview, items: [], durationMs: 0 };
 }
 
+/**
+ * Voert één gebruikersbeurt van de function-calling-loop uit: stuurt berichten
+ * naar Ollama, herkent tool-aanroepen (native tool_calls, of — als het model
+ * dat niet ondersteunt — het prompt-fallback-protocol uit tool-protocol.ts),
+ * voert ze uit en stuurt het resultaat terug, tot het model klaar is, de
+ * gebruiker stopt, of een guard (max iteraties, dubbele aanroep) ingrijpt.
+ * Geeft alle in deze beurt toegevoegde berichten terug; events.onAppend krijgt
+ * ze al per iteratie.
+ */
 export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<ChatMessage[]> {
   const turnMessages = [...messages];
   const appended: ChatMessage[] = [];
+  const append = (entries: AppendedEntry[]): void => {
+    for (const entry of entries) {
+      turnMessages.push(entry.message);
+      appended.push(entry.message);
+    }
+    events.onAppend?.(entries);
+  };
+  const reportTool = (info: ToolCallInfo, result: ToolResultInfo): ToolDisplay => {
+    events.onToolResult(result);
+    return { ...info, ...result };
+  };
   const seenCalls = new Set<string>();
   // Voorkomt dat manipulatieve externe content (een webpagina, of — sinds
   // Fase 4 — een geïndexeerd document) het model binnen dezelfde beurt laat
@@ -168,10 +195,9 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           { name: 'onbekend', args: {} },
           JSON.stringify({ error: malformedError }),
         );
-        events.onToolCall({ tool: 'onbekend', query: '', label: 'Onherkenbare tool-aanroep' });
-        events.onToolResult(failure(`Mislukt: ${malformedError}`, malformedError));
-        turnMessages.push(notice);
-        appended.push(notice);
+        const info: ToolCallInfo = { tool: 'onbekend', query: '', label: 'Onherkenbare tool-aanroep' };
+        events.onToolCall(info);
+        append([{ message: notice, tool: reportTool(info, failure(`Mislukt: ${malformedError}`, malformedError)) }]);
         continue;
       }
 
@@ -187,38 +213,32 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       assistantMessage = { role: 'assistant', content: rawBuffer };
     }
 
-    turnMessages.push(assistantMessage);
-    appended.push(assistantMessage);
-
-    if (!pendingCall) break;
+    if (!pendingCall) {
+      append([{ message: assistantMessage, interrupted: ctx.signal?.aborted === true }]);
+      break;
+    }
     const call: ToolCall = pendingCall;
+    const info = callInfo(call);
 
     const dedupeKey = `${call.name}:${JSON.stringify(call.args)}`;
     if (seenCalls.has(dedupeKey)) {
       const duplicateNotice = 'Deze tool-aanroep is al eerder met dezelfde argumenten uitgevoerd.';
       const notice = buildToolResultMessage(ctx.toolMode, call, JSON.stringify({ error: duplicateNotice }));
-      events.onToolCall(callInfo(call));
-      events.onToolResult(failure(`Overgeslagen: ${duplicateNotice}`, duplicateNotice));
-      turnMessages.push(notice);
-      appended.push(notice);
+      events.onToolCall(info);
+      append([{ message: assistantMessage }, { message: notice, tool: reportTool(info, failure(`Overgeslagen: ${duplicateNotice}`, duplicateNotice)) }]);
       break;
     }
     seenCalls.add(dedupeKey);
 
     if (call.name === 'remember' && usedExternalContentThisTurn) {
-      events.onToolCall(callInfo(call));
-      events.onToolResult(failure(`Geweigerd: ${REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE}`, REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE));
-      const notice = buildToolResultMessage(
-        ctx.toolMode,
-        call,
-        JSON.stringify({ error: REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE }),
-      );
-      turnMessages.push(notice);
-      appended.push(notice);
+      events.onToolCall(info);
+      const notice = buildToolResultMessage(ctx.toolMode, call, JSON.stringify({ error: REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE }));
+      const refused = failure(`Geweigerd: ${REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE}`, REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE);
+      append([{ message: assistantMessage }, { message: notice, tool: reportTool(info, refused) }]);
       continue;
     }
 
-    events.onToolCall(callInfo(call));
+    events.onToolCall(info);
     const startedAt = Date.now();
     const { ok, result } = await executeCall(call, ctx.tools, ctx.signal);
     const durationMs = Date.now() - startedAt;
@@ -227,17 +247,14 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     }
 
     const sanitized = sanitizeExternalContent(JSON.stringify(result));
-    events.onToolResult({
+    const display = reportTool(info, {
       summary: describeResult(call, ok, result),
       ok,
       preview: sanitized,
       items: buildPreviewItems(call, ok, result),
       durationMs,
     });
-
-    const toolResultMessage = buildToolResultMessage(ctx.toolMode, call, sanitized);
-    turnMessages.push(toolResultMessage);
-    appended.push(toolResultMessage);
+    append([{ message: assistantMessage }, { message: buildToolResultMessage(ctx.toolMode, call, sanitized), tool: display }]);
   }
 
   return appended;

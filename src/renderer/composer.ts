@@ -29,14 +29,15 @@ function updateSendButton(): void {
 
 function documentMeta(doc: RelayDocumentInfo): string {
   if (doc.outdated) return 'verouderd embedding-model';
-  return `${countLabel(doc.chunkCount, 'fragment', 'fragmenten')} · doorzoekbaar`;
+  const scope = doc.conversationId === null ? 'alle gesprekken' : 'doorzoekbaar';
+  return `${countLabel(doc.chunkCount, 'fragment', 'fragmenten')} · ${scope}`;
 }
 
-function buildDocChip(title: string, meta: HTMLElement, onRemove: (() => void) | null): HTMLElement {
+function buildDocChip(title: string, meta: HTMLElement, remove: { title: string; run: () => void } | null): HTMLElement {
   return h('div', { class: 'doc-chip', title }, [
     icon('doc', 16, 2),
     h('div', { class: 'doc-chip-text' }, [h('span', { class: 'doc-chip-name', text: title }), meta]),
-    onRemove ? iconButton('close', 'Document verwijderen', 'plain', onRemove) : null,
+    remove ? iconButton('close', remove.title, 'plain', remove.run) : null,
   ]);
 }
 
@@ -45,19 +46,24 @@ function renderDocChips(): void {
 
   for (const doc of appState.documents) {
     const meta = h('span', { class: `doc-chip-meta${doc.outdated ? ' is-warning' : ''}`, text: documentMeta(doc) });
+    // Documenten van vóór Fase 5 horen bij geen enkel gesprek: weghalen haalt ze overal weg.
+    const removeTitle = doc.conversationId === null ? 'Uit alle gesprekken verwijderen' : 'Uit dit gesprek halen';
     docChipsEl.appendChild(
-      buildDocChip(doc.title, meta, () => {
-        clearComposerError();
-        window.relay.documents
-          .remove(doc.id)
-          .then(refreshDocuments)
-          .catch((error: unknown) => showComposerError(describeUnknownError(error)));
+      buildDocChip(doc.title, meta, {
+        title: removeTitle,
+        run: () => {
+          clearComposerError();
+          window.relay.documents
+            .remove(doc.id)
+            .then(refreshDocuments)
+            .catch((error: unknown) => showComposerError(describeUnknownError(error)));
+        },
       }),
     );
   }
 
   const indexing = appState.indexing;
-  if (indexing) {
+  if (indexing && indexing.conversationId === appState.activeId) {
     const pct = indexing.total > 0 ? Math.round((indexing.done / indexing.total) * 100) : 0;
     const fill = h('span', { class: 'progress-fill' });
     fill.style.width = `${pct}%`;
@@ -69,9 +75,32 @@ function renderDocChips(): void {
 }
 
 async function refreshDocuments(): Promise<void> {
-  appState.documents = await window.relay.documents.list();
+  const conversationId = appState.activeId;
+  const documents = await window.relay.documents.list(conversationId);
+  if (conversationId !== appState.activeId) return;
+  appState.documents = documents;
+  const c = conversationById(conversationId);
+  if (c) c.documentCount = documents.filter((d) => d.conversationId === conversationId).length;
   renderDocChips();
   renderHeader();
+  renderSidebar();
+}
+
+/** Eén document tegelijk (main staat niet meer toe); de knop is zolang uitgeschakeld. */
+async function runDocumentAdd(conversationId: number, add: () => Promise<unknown>): Promise<void> {
+  clearComposerError();
+  attachButtonEl.disabled = true;
+  appState.indexing = null;
+  try {
+    await add();
+  } catch (error) {
+    showComposerError(describeUnknownError(error));
+  } finally {
+    attachButtonEl.disabled = false;
+    appState.indexing = null;
+    if (conversationId === appState.activeId) await refreshDocuments().catch(() => undefined);
+    else renderDocChips();
+  }
 }
 
 chatInputEl.addEventListener('input', () => {
@@ -97,20 +126,11 @@ stopButtonEl.addEventListener('click', () => {
 });
 
 attachButtonEl.addEventListener('click', () => {
-  clearComposerError();
-  attachButtonEl.disabled = true;
-  window.relay.documents
-    .add()
-    .then((added) => (added ? refreshDocuments() : undefined))
-    .catch((error: unknown) => showComposerError(describeUnknownError(error)))
-    .finally(() => {
-      attachButtonEl.disabled = false;
-      appState.indexing = null;
-      renderDocChips();
-    });
+  const conversationId = appState.activeId;
+  void runDocumentAdd(conversationId, () => window.relay.documents.add(conversationId));
 });
 
 window.relay.documents.onProgress((payload) => {
-  appState.indexing = { title: payload.title, done: payload.done, total: payload.total };
+  appState.indexing = { conversationId: payload.conversationId, title: payload.title, done: payload.done, total: payload.total };
   renderDocChips();
 });

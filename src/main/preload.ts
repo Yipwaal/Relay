@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppDefaults,
-  ChatMessage,
   ChatStatusPayload,
   ChunkPayload,
+  ConversationMessage,
+  ConversationSummary,
+  ConversationUpdatedPayload,
   DocumentInfo,
   DocumentProgressPayload,
   DonePayload,
@@ -14,38 +16,49 @@ import type {
   ToolResultPayload,
 } from '../shared/ipc-types';
 
+function on<T>(channel: string, callback: (payload: T) => void): void {
+  ipcRenderer.on(channel, (_event, payload: T) => callback(payload));
+}
+
 contextBridge.exposeInMainWorld('relay', {
   defaults(): Promise<AppDefaults> {
     return ipcRenderer.invoke('relay:app:defaults');
   },
-  sendMessage(messages: ChatMessage[]): string {
+  /** Alleen de nieuwe tekst: de geschiedenis leest main zelf uit de database. */
+  sendMessage(conversationId: number, text: string): string {
     const requestId = crypto.randomUUID();
-    ipcRenderer.send('relay:chat:send', { requestId, messages });
+    ipcRenderer.send('relay:chat:send', { requestId, conversationId, text });
     return requestId;
   },
   stopMessage(requestId: string): void {
     ipcRenderer.send('relay:chat:stop', requestId);
   },
-  onStatus(callback: (payload: ChatStatusPayload) => void): void {
-    ipcRenderer.on('relay:chat:status', (_event, payload: ChatStatusPayload) => callback(payload));
-  },
   ollamaStatus(): Promise<OllamaStatus> {
     return ipcRenderer.invoke('relay:ollama:status');
   },
-  onChunk(callback: (payload: ChunkPayload) => void): void {
-    ipcRenderer.on('relay:chat:chunk', (_event, payload: ChunkPayload) => callback(payload));
-  },
-  onToolCall(callback: (payload: ToolCallPayload) => void): void {
-    ipcRenderer.on('relay:chat:tool-call', (_event, payload: ToolCallPayload) => callback(payload));
-  },
-  onToolResult(callback: (payload: ToolResultPayload) => void): void {
-    ipcRenderer.on('relay:chat:tool-result', (_event, payload: ToolResultPayload) => callback(payload));
-  },
-  onDone(callback: (payload: DonePayload) => void): void {
-    ipcRenderer.on('relay:chat:done', (_event, payload: DonePayload) => callback(payload));
-  },
-  onError(callback: (payload: ErrorPayload) => void): void {
-    ipcRenderer.on('relay:chat:error', (_event, payload: ErrorPayload) => callback(payload));
+  onStatus: (callback: (payload: ChatStatusPayload) => void) => on('relay:chat:status', callback),
+  onChunk: (callback: (payload: ChunkPayload) => void) => on('relay:chat:chunk', callback),
+  onToolCall: (callback: (payload: ToolCallPayload) => void) => on('relay:chat:tool-call', callback),
+  onToolResult: (callback: (payload: ToolResultPayload) => void) => on('relay:chat:tool-result', callback),
+  onDone: (callback: (payload: DonePayload) => void) => on('relay:chat:done', callback),
+  onError: (callback: (payload: ErrorPayload) => void) => on('relay:chat:error', callback),
+  conversations: {
+    list(): Promise<ConversationSummary[]> {
+      return ipcRenderer.invoke('relay:conversations:list');
+    },
+    create(): Promise<ConversationSummary> {
+      return ipcRenderer.invoke('relay:conversations:create');
+    },
+    rename(id: number, title: string): Promise<ConversationSummary> {
+      return ipcRenderer.invoke('relay:conversations:rename', id, title);
+    },
+    remove(id: number): Promise<void> {
+      return ipcRenderer.invoke('relay:conversations:delete', id);
+    },
+    messages(id: number): Promise<ConversationMessage[]> {
+      return ipcRenderer.invoke('relay:conversations:messages', id);
+    },
+    onUpdated: (callback: (payload: ConversationUpdatedPayload) => void) => on('relay:conversations:updated', callback),
   },
   memory: {
     list(): Promise<MemoryFact[]> {
@@ -62,17 +75,18 @@ contextBridge.exposeInMainWorld('relay', {
     },
   },
   documents: {
-    list(): Promise<DocumentInfo[]> {
-      return ipcRenderer.invoke('relay:documents:list');
+    list(conversationId: number): Promise<DocumentInfo[]> {
+      return ipcRenderer.invoke('relay:documents:list', conversationId);
     },
-    add(): Promise<DocumentInfo | null> {
-      return ipcRenderer.invoke('relay:documents:add');
+    add(conversationId: number): Promise<DocumentInfo | null> {
+      return ipcRenderer.invoke('relay:documents:add', conversationId);
+    },
+    addDropped(conversationId: number, name: string, data: Uint8Array): Promise<DocumentInfo> {
+      return ipcRenderer.invoke('relay:documents:add-dropped', conversationId, name, data);
     },
     remove(id: number): Promise<void> {
       return ipcRenderer.invoke('relay:documents:delete', id);
     },
-    onProgress(callback: (payload: DocumentProgressPayload) => void): void {
-      ipcRenderer.on('relay:documents:progress', (_event, payload: DocumentProgressPayload) => callback(payload));
-    },
+    onProgress: (callback: (payload: DocumentProgressPayload) => void) => on('relay:documents:progress', callback),
   },
 });

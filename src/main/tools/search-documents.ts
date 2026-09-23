@@ -30,6 +30,7 @@ export function createSearchDocumentsTool(
   documentStore: DocumentStore,
   embedder: Embedder,
   embedModel: string,
+  conversationId: number,
   documentTitles: string[],
 ): ToolDefinition {
   return {
@@ -53,7 +54,7 @@ export function createSearchDocumentsTool(
         throw new Error('Kon geen embedding genereren voor de zoekvraag.');
       }
 
-      const matches = documentStore.search(queryEmbedding, embedModel, TOP_K);
+      const matches = documentStore.search(queryEmbedding, embedModel, TOP_K, conversationId);
 
       const results: Array<{ document: string; text: string; score: number }> = [];
       let used = 0;

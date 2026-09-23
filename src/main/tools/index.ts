@@ -31,6 +31,8 @@ export interface ToolRegistryDeps {
   documentStore: DocumentStore;
   embedder: Embedder;
   embedModel: string;
+  /** search_documents doorzoekt alleen de documenten van dit gesprek (plus de globale van vóór Fase 5). */
+  conversationId: number;
 }
 
 /**
@@ -47,12 +49,15 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Map<string, ToolDefin
 
   registry.set('remember', createRememberTool(deps.memoryStore));
 
-  if (deps.documentStore.hasDocumentsForModel(deps.embedModel)) {
+  if (deps.documentStore.hasDocumentsForModel(deps.embedModel, deps.conversationId)) {
     const titles = deps.documentStore
-      .listDocuments()
+      .listDocuments(deps.conversationId)
       .filter((doc) => doc.embedModel === deps.embedModel)
       .map((doc) => doc.title);
-    registry.set('search_documents', createSearchDocumentsTool(deps.documentStore, deps.embedder, deps.embedModel, titles));
+    registry.set(
+      'search_documents',
+      createSearchDocumentsTool(deps.documentStore, deps.embedder, deps.embedModel, deps.conversationId, titles),
+    );
   }
 
   if (!deps.ollamaApiKey) {

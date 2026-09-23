@@ -27,6 +27,9 @@ async function loadConversation(c: ConversationView): Promise<void> {
 async function selectConversation(id: number): Promise<void> {
   const c = conversationById(id);
   if (!c) return;
+  // Menu en instellingen horen bij één gesprek; bij wisselen (bv. Ctrl+N) gaan ze dicht.
+  closeModelMenu();
+  if (settingsDialog.open) settingsDialog.close();
   appState.activeId = id;
   appState.renamingId = null;
   appState.documents = [];

@@ -11,7 +11,8 @@ export interface ToolDefinition {
   name: 'web_search' | 'web_fetch' | 'remember' | 'search_documents';
   description: string;
   parameters: Record<string, unknown>;
-  execute(args: Record<string, unknown>): Promise<unknown>;
+  /** signal: de stop-knop — tools met netwerkverkeer geven het door aan fetch. */
+  execute(args: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>;
 }
 
 function requireStringArg(args: Record<string, unknown>, key: string): string {
@@ -75,9 +76,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Map<string, ToolDefin
       },
       required: ['query'],
     },
-    async execute(args) {
+    async execute(args, signal) {
       const query = requireStringArg(args, 'query');
-      const results = await searchProvider.search(query);
+      const results = await searchProvider.search(query, signal);
       return { results };
     },
   });
@@ -92,9 +93,9 @@ export function buildToolRegistry(deps: ToolRegistryDeps): Map<string, ToolDefin
       },
       required: ['url'],
     },
-    async execute(args) {
+    async execute(args, signal) {
       const url = requireStringArg(args, 'url');
-      const page = await fetchWebPage(apiKey, url);
+      const page = await fetchWebPage(apiKey, url, signal);
       return page;
     },
   });

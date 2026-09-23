@@ -50,8 +50,13 @@ function isChatSendPayload(value: unknown): value is ChatSendPayload {
 
 const LOADED_CHECK_TIMEOUT_MS = 500;
 
-/** Lopende verzoeken, zodat relay:chat:stop de juiste kan afbreken. */
-const activeRequests = new Map<string, AbortController>();
+/** Lopende verzoeken, zodat relay:chat:stop de juiste kan afbreken — alleen vanuit het venster dat ze startte. */
+const activeRequests = new Map<string, { controller: AbortController; senderId: number }>();
+
+/** Voor afsluiten: breek alles af vóórdat de database sluit. */
+export function abortAllChatRequests(): void {
+  for (const { controller } of activeRequests.values()) controller.abort();
+}
 
 function safeSend(sender: WebContents, channel: string, payload: unknown): void {
   if (sender.isDestroyed()) return;
@@ -142,12 +147,14 @@ export function registerChatHandler(memoryStore: MemoryStore, documentStore: Doc
       return;
     }
     const controller = new AbortController();
-    activeRequests.set(payload.requestId, controller);
+    activeRequests.set(payload.requestId, { controller, senderId: event.sender.id });
     void handleChatRequest(event.sender, payload.requestId, payload.messages, memoryStore, documentStore, controller);
   });
 
-  ipcMain.on('relay:chat:stop', (_event: IpcMainEvent, requestId: unknown) => {
+  ipcMain.on('relay:chat:stop', (event: IpcMainEvent, requestId: unknown) => {
     if (typeof requestId !== 'string') return;
-    activeRequests.get(requestId)?.abort();
+    const active = activeRequests.get(requestId);
+    // Een stop die ná done/error binnenkomt vindt niets meer — dat is prima.
+    if (active && active.senderId === event.sender.id) active.controller.abort();
   });
 }

@@ -3,6 +3,8 @@ import { unloadLoadedModels } from './ollama-lifecycle';
 export const UNLOAD_ON_QUIT_TIMEOUT_MS = 2000;
 
 export interface QuitDeps {
+  /** Lopende chatbeurten afbreken, zodat niets meer naar de database schrijft als die sluit. */
+  abortActive(): void;
   /** Kan gooien (ongeldige config) — afsluiten gaat dan gewoon door zonder unload. */
   ollamaUrl(): string;
   closeDb(): void;
@@ -27,6 +29,7 @@ export function createBeforeQuitHandler(deps: QuitDeps): (event: { preventDefaul
     quitting = true;
 
     void (async () => {
+      deps.abortActive();
       try {
         await unloadLoadedModels(deps.ollamaUrl(), deps.timeoutMs ?? UNLOAD_ON_QUIT_TIMEOUT_MS);
       } catch (error) {

@@ -9,7 +9,7 @@ export interface SearchResult {
 }
 
 export interface SearchProvider {
-  search(query: string): Promise<SearchResult[]>;
+  search(query: string, signal?: AbortSignal): Promise<SearchResult[]>;
 }
 
 interface RawSearchResult {
@@ -34,8 +34,9 @@ function toSearchResult(raw: RawSearchResult): SearchResult | null {
  */
 export function createOllamaSearchProvider(apiKey: string): SearchProvider {
   return {
-    async search(query: string): Promise<SearchResult[]> {
+    async search(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
       const response = await fetch(WEB_SEARCH_URL, {
+        signal,
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,

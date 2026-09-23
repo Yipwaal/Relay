@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import * as path from 'node:path';
-import { registerChatHandler } from './ipc/chat-handler';
+import { abortAllChatRequests, registerChatHandler } from './ipc/chat-handler';
 import { registerMemoryHandlers } from './ipc/memory-handler';
 import { registerDocumentsHandlers } from './ipc/documents-handler';
 import { registerOllamaHandlers } from './ipc/ollama-handler';
@@ -60,6 +60,7 @@ app.whenReady().then(() => {
   app.on(
     'before-quit',
     createBeforeQuitHandler({
+      abortActive: abortAllChatRequests,
       ollamaUrl: () => loadConfig().ollamaUrl,
       closeDb: () => db.close(),
       exit: () => app.exit(0),

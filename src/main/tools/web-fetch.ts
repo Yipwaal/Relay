@@ -23,10 +23,11 @@ function assertFetchableUrl(url: string): void {
  * (https://ollama.com/api/web_fetch) — dezelfde provider als web_search, dus
  * geen aparte HTML-extractiepipeline nodig in dit project.
  */
-export async function fetchWebPage(apiKey: string, url: string): Promise<FetchedPage> {
+export async function fetchWebPage(apiKey: string, url: string, signal?: AbortSignal): Promise<FetchedPage> {
   assertFetchableUrl(url);
 
   const response = await fetch(WEB_FETCH_URL, {
+    signal,
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,

@@ -47,7 +47,8 @@ async function executeCall(
   console.log(`[relay] tool-aanroep: ${call.name} input=${JSON.stringify(call.args)}`);
 
   try {
-    const result = await abortable(withTimeout(tool.execute(call.args), TOOL_TIMEOUT_MS, `Tool "${call.name}"`), signal);
+    // abortable: ook tools die het signaal (nog) niet zelf afhandelen laten de beurt direct stoppen.
+    const result = await abortable(withTimeout(tool.execute(call.args, signal), TOOL_TIMEOUT_MS, `Tool "${call.name}"`), signal);
     return { ok: true, result };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Tool-aanroep mislukt';

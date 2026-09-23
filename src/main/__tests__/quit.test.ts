@@ -29,6 +29,7 @@ function runQuit(timeoutMs = 2000, log: string[] = []): Promise<{ log: string[];
   return new Promise((resolve) => {
     let prevented = 0;
     const handler = createBeforeQuitHandler({
+      abortActive: () => log.push('abortActive'),
       ollamaUrl: () => BASE,
       closeDb: () => log.push('closeDb'),
       exit: () => {
@@ -57,8 +58,9 @@ test('before-quit bevraagt /api/ps en unloadt elk geladen model vóór app.exit(
     { model: 'gemma4:12b', keep_alive: 0 },
     { model: 'qwen2.5:14b', keep_alive: 0 },
   ]);
-  // Volgorde: /api/ps, dan de unloads, dan pas closeDb en exit.
+  // Volgorde: lopende beurten afbreken, /api/ps, de unloads, dan pas closeDb en exit.
   assert.deepEqual(log, [
+    'abortActive',
     'fetch /api/ps',
     'fetch /api/generate {"model":"gemma4:12b","keep_alive":0}',
     'fetch /api/generate {"model":"qwen2.5:14b","keep_alive":0}',
@@ -72,7 +74,7 @@ test('before-quit sluit alsnog af als Ollama niet draait', async () => {
     throw new TypeError('fetch failed');
   }) as typeof fetch;
   const result = await runQuit();
-  assert.deepEqual(result.log, ['closeDb', 'exit']);
+  assert.deepEqual(result.log, ['abortActive', 'closeDb', 'exit']);
 });
 
 test('before-quit wacht niet langer dan de timeout op een hangende Ollama', async () => {
@@ -82,7 +84,7 @@ test('before-quit wacht niet langer dan de timeout op een hangende Ollama', asyn
     })) as typeof fetch;
   const started = Date.now();
   const result = await runQuit(150);
-  assert.deepEqual(result.log, ['closeDb', 'exit']);
+  assert.deepEqual(result.log, ['abortActive', 'closeDb', 'exit']);
   assert.ok(Date.now() - started < 1500);
 });
 
@@ -90,6 +92,7 @@ test('before-quit sluit af ook als de config ongeldig is', async () => {
   const log: string[] = [];
   await new Promise<void>((resolve) => {
     const handler = createBeforeQuitHandler({
+      abortActive: () => undefined,
       ollamaUrl: () => {
         throw new Error('Ongeldige config');
       },

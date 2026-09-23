@@ -99,3 +99,31 @@ test('een al afgebroken signaal start niets', async () => {
   assert.equal(fetchMock.calls(), 0);
   assert.deepEqual(appended, []);
 });
+
+test('de stop-knop bereikt ook de tool zelf, zodat een web-aanroep echt afbreekt', async () => {
+  mockStreamingFetch([
+    [JSON.stringify({ message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'web_fetch', arguments: { url: 'https://a.nl' } } }] }, done: false }) + '\n'],
+  ]);
+  const controller = new AbortController();
+  let toolSignalAborted = false;
+  const tools = new Map<string, ToolDefinition>();
+  tools.set('web_fetch', {
+    name: 'web_fetch',
+    description: 'x',
+    parameters: {},
+    execute: (_args, signal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          toolSignalAborted = true;
+          reject(new Error('aborted'));
+        });
+      }),
+  });
+
+  await runAgentTurn(ctx('native', tools, controller.signal), [{ role: 'user', content: 'x' }], {
+    onToken: () => undefined,
+    onToolCall: () => setTimeout(() => controller.abort(), 10),
+    onToolResult: () => undefined,
+  });
+  assert.equal(toolSignalAborted, true);
+});

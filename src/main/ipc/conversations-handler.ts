@@ -5,7 +5,7 @@ import { MAX_TITLE_CHARS, resolveOptions, type ConversationRecord, type Conversa
 import { listChatModels } from '../models';
 import { unloadLoadedModels } from '../ollama-lifecycle';
 import type { ChatOptions, ConversationMessage, ConversationSummary } from '../../shared/ipc-types';
-import { abortConversationRequests } from './chat-handler';
+import { abortConversationRequests, modelsInUse } from './chat-handler';
 
 const UNLOAD_TIMEOUT_MS = 3000;
 
@@ -78,7 +78,7 @@ export function registerConversationsHandlers(store: ConversationStore): void {
     }
     const updated = store.setModel(conversation.id, model);
     if (model !== conversation.model) {
-      void unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel]);
+      void unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel, ...modelsInUse()]);
     }
     return toSummary(updated, config.options);
   });

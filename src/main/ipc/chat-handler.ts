@@ -50,7 +50,12 @@ function isChatSendPayload(value: unknown): value is ChatSendPayload {
 }
 
 /** Lopende verzoeken, zodat relay:chat:stop de juiste kan afbreken — alleen vanuit het venster dat ze startte. */
-const activeRequests = new Map<string, { controller: AbortController; senderId: number; conversationId: number }>();
+const activeRequests = new Map<string, { controller: AbortController; senderId: number; conversationId: number; model: string }>();
+
+/** Modellen waarmee nu een antwoord loopt — die mogen nooit ge-unload worden (dat zou die stream afbreken). */
+export function modelsInUse(): string[] {
+  return [...new Set([...activeRequests.values()].map((active) => active.model))];
+}
 
 /** Voor afsluiten: breek alles af vóórdat de database sluit. */
 export function abortAllChatRequests(): void {
@@ -175,7 +180,7 @@ async function handleChatRequest(
     // zodat er geen twee grote modellen tegelijk resident blijven.
     if ((await isModelLoaded(config.ollamaUrl, model, LOADED_CHECK_TIMEOUT_MS)) === false) {
       safeSend(sender, 'relay:chat:status', { requestId, status: 'loading-model' });
-      await unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel]);
+      await unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel, ...modelsInUse()]);
     }
 
     let lastAnswer = '';
@@ -235,8 +240,13 @@ export function registerChatHandler(deps: ChatDeps): void {
       safeSend(event.sender, 'relay:chat:error', { requestId, message: 'Er loopt al een antwoord in dit gesprek.' });
       return;
     }
+    const conversation = deps.conversationStore.get(conversationId);
+    if (!conversation) {
+      safeSend(event.sender, 'relay:chat:error', { requestId, message: 'Gesprek bestaat niet (meer).' });
+      return;
+    }
     const controller = new AbortController();
-    activeRequests.set(requestId, { controller, senderId: event.sender.id, conversationId });
+    activeRequests.set(requestId, { controller, senderId: event.sender.id, conversationId, model: conversation.model });
     void handleChatRequest(event.sender, requestId, conversationId, text.trim(), deps, controller);
   });
 

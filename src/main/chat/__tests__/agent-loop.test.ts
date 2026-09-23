@@ -50,8 +50,8 @@ function collectingEvents(): { events: AgentEvents; toolResults: Array<{ summary
   return {
     events: {
       onToken: () => {},
-      onToolCall: (label) => toolCalls.push(label),
-      onToolResult: (summary, ok) => toolResults.push({ summary, ok }),
+      onToolCall: (info) => toolCalls.push(info.label),
+      onToolResult: (info) => toolResults.push({ summary: info.summary, ok: info.ok }),
     },
     toolResults,
     toolCalls,
@@ -160,7 +160,7 @@ test('runAgentTurn staat remember toe als er geen web-tool in deze beurt gebruik
     await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'ik houd van koffie' }], events);
 
     assert.equal(rememberExecuted, true);
-    assert.ok(toolResults.some((r) => r.ok && r.summary === 'Feit opgeslagen'));
+    assert.ok(toolResults.some((r) => r.ok && r.summary === 'Opgeslagen'));
   } finally {
     restore();
   }

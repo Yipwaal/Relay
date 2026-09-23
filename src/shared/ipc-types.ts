@@ -18,19 +18,38 @@ export interface ChunkPayload {
   token: string;
 }
 
-export interface ToolCallPayload {
-  requestId: string;
+/** Eén gevonden fragment voor de tool-kaart in de UI: bron (document, domein, URL) + tekst. */
+export interface ToolPreviewItem {
+  src: string;
+  text: string;
+}
+
+export interface ToolCallInfo {
+  /** Toolnaam, bv. 'search_documents' — de renderer kiest hier het kaartlabel op. */
+  tool: string;
+  /** Het belangrijkste argument (zoekvraag, URL of feit), voor de kaarttitel. */
+  query: string;
   /** Kant-en-klare, mensleesbare tekst, bv. 'Zoekt naar: "..."'. */
   label: string;
 }
 
-export interface ToolResultPayload {
-  requestId: string;
+export interface ToolResultInfo {
   /** Kant-en-klare, mensleesbare tekst, bv. '3 resultaten gevonden'. */
   summary: string;
   ok: boolean;
   /** De exacte (gesaneerde) inhoud die het model te zien krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
   preview: string;
+  /** Dezelfde resultaten per fragment, elk apart gesaneerd, voor de inklapbare kaart. */
+  items: ToolPreviewItem[];
+  durationMs: number;
+}
+
+export type ToolCallPayload = ToolCallInfo & { requestId: string };
+export type ToolResultPayload = ToolResultInfo & { requestId: string };
+
+export interface AppDefaults {
+  model: string;
+  numCtx: number;
 }
 
 export interface DonePayload {

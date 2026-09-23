@@ -8,7 +8,7 @@ import { runAgentTurn } from '../chat/agent-loop';
 import { createOllamaEmbedder } from '../ollama-embed';
 import type { MemoryStore } from '../memory/store';
 import type { DocumentStore } from '../documents/store';
-import type { ChatMessage, ChatToolCall } from '../../shared/ipc-types';
+import type { AppDefaults, ChatMessage, ChatToolCall } from '../../shared/ipc-types';
 
 type IncomingMessage =
   | { role: 'user'; content: string }
@@ -98,8 +98,8 @@ async function handleChatRequest(
       turnMessages,
       {
         onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
-        onToolCall: (label) => safeSend(sender, 'relay:chat:tool-call', { requestId, label }),
-        onToolResult: (summary, ok, preview) => safeSend(sender, 'relay:chat:tool-result', { requestId, summary, ok, preview }),
+        onToolCall: (info) => safeSend(sender, 'relay:chat:tool-call', { requestId, ...info }),
+        onToolResult: (info) => safeSend(sender, 'relay:chat:tool-result', { requestId, ...info }),
       },
     );
 
@@ -112,6 +112,11 @@ async function handleChatRequest(
 }
 
 export function registerChatHandler(memoryStore: MemoryStore, documentStore: DocumentStore): void {
+  ipcMain.handle('relay:app:defaults', (): AppDefaults => {
+    const config = loadConfig();
+    return { model: config.model, numCtx: config.numCtx };
+  });
+
   ipcMain.on('relay:chat:send', (event: IpcMainEvent, payload: unknown) => {
     if (!isChatSendPayload(payload)) {
       console.error('[relay] ongeldig chat:send-bericht genegeerd');

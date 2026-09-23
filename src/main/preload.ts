@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
+  AppDefaults,
   ChatMessage,
   ChunkPayload,
   DocumentInfo,
@@ -12,6 +13,9 @@ import type {
 } from '../shared/ipc-types';
 
 contextBridge.exposeInMainWorld('relay', {
+  defaults(): Promise<AppDefaults> {
+    return ipcRenderer.invoke('relay:app:defaults');
+  },
   sendMessage(messages: ChatMessage[]): string {
     const requestId = crypto.randomUUID();
     ipcRenderer.send('relay:chat:send', { requestId, messages });

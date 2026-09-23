@@ -13,6 +13,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 2 — Web search + fetch (tool calling)
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
+- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓)
 
 ## Vereisten
 
@@ -85,6 +86,7 @@ src/
     chat/
       agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
+      tool-display.ts  Labels + per-fragment previews voor de tool-kaarten in de UI
       capabilities.ts  Detecteert of het model native tools ondersteunt
       system-prompt.ts  Assembleert system prompt: base + memory + tool-appendix
     tools/
@@ -102,7 +104,17 @@ src/
       vector.ts            Float32<->BLOB, normalize, dot, topK (pure functies)
       store.ts              DocumentStore: CRUD + brute-force cosine similarity search
       ingest.ts              Pipeline: extract -> chunk -> embed -> store
-  renderer/    Chat-UI + instellingenscherm (HTML/CSS/TS), praat alleen via de preload-bridge
+  renderer/    UI (HTML/CSS + import-vrije TS-scripts), praat alleen via de preload-bridge
+    index.html     Skelet: sidebar, header, berichten, invoer, dialogen
+    styles.css     Tokens 1-op-1 uit het design (Relay_dc.html) + componentstijlen
+    format.ts      Pure helpers: datumgroepen, Nederlandse labels (los getest via vm)
+    dom.ts         Element-builder (altijd textContent) + inline-SVG-iconen
+    state.ts       Gedeelde renderer-state + gespreksopslag
+    chat-view.ts   Berichten, streaming-bubbels, inklapbare tool-kaarten
+    sidebar.ts     Gesprekkenlijst per datumgroep, hernoemen, verwijderdialoog, header
+    composer.ts    Invoerveld, document-chips met voortgang, paperclip
+    settings.ts    Instellingendialoog (geheugen)
+    app.ts         Wiring: IPC-events, sneltoetsen, opstarten
   shared/      IPC-typedefinities die de preload-grens passeren
 config/        config.json — instelbare system prompt / model / URL / toolMode / numCtx / embedModel
 assets/        icon.svg / icon.png
@@ -353,3 +365,22 @@ tool-description, wat helpt bij modellen die de tool anders te weinig kiezen
   geaccepteerde restrisico past bij hoe Fase 2's `web_fetch`-bestemmingsrisico
   en Fase 3's `remember`-multi-beurt-gat zijn behandeld: transparant
   gedocumenteerd in plaats van volledig weggeëngineerd.
+
+## Interface (Fase 5)
+
+Het design (`Relay_dc.html`, een prototype uit Claude's Design-canvas met
+React en een eigen componentsysteem) is herbouwd met de bestaande stack:
+platte HTML/CSS en import-vrije TypeScript-scripts, geen React of nieuwe
+dependency. Het `:root`-tokenblok is 1-op-1 overgenomen; fonts en radii
+kwamen in het design uit een niet-meegeleverde designsystem-bundel en zijn
+hier met systeemfonts en eigen waarden ingevuld. De CSP blijft streng
+(`style-src 'self'`): geen inline `style`-attributen, dynamische waarden
+(voortgangsbalk, invoerhoogte) gaan via de CSSOM.
+
+Tool-aanroepen verschijnen als inklapbare kaart (documenten, web, pagina
+ophalen) of als compacte regel (`remember`): tooltype, zoekvraag, status met
+duur, en uitgeklapt de gevonden fragmenten (bron + tekst). Die fragmenten
+bouwt main per stuk uit hetzelfde tool-resultaat en haalt elk apart door
+`sanitizeExternalContent` (`chat/tool-display.ts`), zodat de gebruiker nooit
+minder ziet dan het model.
+

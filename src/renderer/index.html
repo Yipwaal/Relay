@@ -4,54 +4,130 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"
     />
     <title>Relay</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div id="app">
-      <header>
-        <h1>Relay</h1>
-        <button id="settings-button" type="button" aria-label="Instellingen">⚙ Instellingen</button>
-      </header>
-      <main id="messages" aria-live="polite"></main>
-      <form id="chat-form">
-        <textarea id="chat-input" placeholder="Stel een vraag..." rows="2"></textarea>
-        <button type="submit" id="send-button">Verstuur</button>
-      </form>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <img class="brand-icon" src="../../assets/icon.png" alt="" />
+          <div class="brand-text">
+            <span class="brand-name">Relay</span>
+            <span class="brand-status"><span class="status-dot"></span><span id="ollama-status-text">Lokaal via Ollama</span></span>
+          </div>
+        </div>
+        <div class="sidebar-new">
+          <button id="new-chat-button" class="btn btn-secondary btn-block btn-new" type="button" title="Nieuw gesprek (Ctrl+N)">
+            <svg class="btn-new-plus" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+            <span class="btn-grow">Nieuw gesprek</span>
+            <span class="kbd">Ctrl N</span>
+          </button>
+        </div>
+        <nav id="conversation-list" class="conv-list pane-scroll" aria-label="Gesprekken"></nav>
+        <div class="sidebar-footer">
+          <button id="settings-button" class="nav-button" type="button">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"></path><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"></path></svg>
+            <span>Instellingen</span>
+          </button>
+          <div id="facts-summary" class="facts-summary"></div>
+        </div>
+      </aside>
+
+      <main id="chat-main" class="chat-main">
+        <header class="chat-header">
+          <div class="chat-header-text">
+            <span id="chat-title" class="chat-title" title="Dubbelklik om te hernoemen"></span>
+            <span id="chat-meta" class="chat-meta"></span>
+          </div>
+          <div class="model-pill" title="Model voor dit gesprek">
+            <span class="status-dot"></span>
+            <span id="model-pill-name" class="model-pill-name"></span>
+          </div>
+        </header>
+
+        <div id="chat-body" class="chat-body">
+          <div class="empty-spacer-top"></div>
+          <div id="messages-scroll" class="messages-scroll pane-scroll">
+            <div id="messages" class="messages" aria-live="polite"></div>
+          </div>
+          <div class="empty-state">
+            <img class="empty-icon" src="../../assets/icon.png" alt="" />
+            <div class="empty-title">Stel je eerste vraag</div>
+            <div id="empty-intro" class="empty-intro"></div>
+          </div>
+
+          <div class="composer-wrap">
+            <div class="composer">
+              <div id="doc-chips" class="doc-chips" hidden></div>
+              <textarea id="chat-input" class="composer-input" placeholder="Stel een vraag..." rows="2"></textarea>
+              <div class="composer-actions">
+                <button id="attach-button" class="icon-label-button" type="button" title="Document toevoegen (.txt, .md, .pdf, .docx)">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5"></path></svg>
+                  <span>Document</span>
+                </button>
+                <span class="composer-hint">Enter verstuurt · Shift + Enter voor een nieuwe regel</span>
+                <button id="send-button" class="btn btn-primary btn-send" type="button" disabled>Verstuur</button>
+              </div>
+            </div>
+            <p id="composer-error" class="composer-error" role="alert" hidden></p>
+          </div>
+          <div class="empty-spacer-bottom"></div>
+        </div>
+      </main>
     </div>
 
-    <dialog id="settings-dialog">
-      <section class="settings-section">
-        <h2>Geheugen</h2>
-        <p class="settings-hint">Feiten die Relay onthoudt en in elk gesprek meestuurt.</p>
-        <p id="settings-error" class="settings-error" hidden></p>
-        <ul id="facts-list"></ul>
-        <form id="add-fact-form">
-          <input type="text" id="new-fact-input" placeholder="Nieuw feit..." maxlength="500" />
-          <button type="submit">Toevoegen</button>
-        </form>
-      </section>
+    <dialog id="settings-dialog" class="dialog dialog-settings" aria-labelledby="settings-title">
+      <div class="dialog-head">
+        <span id="settings-title" class="dialog-title">Instellingen</span>
+        <button id="settings-close-icon" class="icon-btn icon-btn-plain" type="button" title="Sluiten" aria-label="Sluiten">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+        </button>
+      </div>
+      <div class="dialog-body">
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-title">Geheugen</span>
+            <span class="section-hint">Feiten die Relay onthoudt en in elk gesprek meestuurt.</span>
+          </div>
+          <p id="settings-error" class="settings-error" role="alert" hidden></p>
+          <div id="facts-list" class="facts-list pane-scroll"></div>
+          <form id="add-fact-form" class="add-fact">
+            <input type="text" id="new-fact-input" class="text-input" placeholder="Nieuw feit, bijv. ‘Ik werk vier dagen per week’" maxlength="500" />
+            <button type="submit" id="add-fact-button" class="btn btn-secondary" disabled>Toevoegen</button>
+          </form>
+        </section>
 
-      <section class="settings-section">
-        <h2>Documenten</h2>
-        <p class="settings-hint">Documenten die Relay tijdens een gesprek kan doorzoeken (.txt, .md, .pdf, .docx).</p>
-        <p id="documents-error" class="settings-error" hidden></p>
-        <ul id="documents-list"></ul>
-        <p id="documents-progress" class="documents-progress" hidden></p>
-        <div class="dialog-actions">
-          <button id="add-document-button" type="button">Document toevoegen...</button>
+        <div class="settings-footer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5"></path></svg>
+          <span class="settings-footer-text">Documenten voeg je toe met de paperclip onder het invoerveld. Wijzigingen worden direct opgeslagen.</span>
+          <button id="close-settings-button" class="btn btn-secondary" type="button">Sluiten</button>
         </div>
-      </section>
-
-      <div class="dialog-actions">
-        <button id="close-settings-button" type="button">Sluiten</button>
       </div>
     </dialog>
 
-    <script src="./renderer.js"></script>
+    <dialog id="delete-dialog" class="dialog dialog-confirm" aria-labelledby="delete-title">
+      <div class="dialog-head">
+        <span id="delete-title" class="dialog-title">Gesprek verwijderen?</span>
+      </div>
+      <div class="dialog-body dialog-confirm-body">
+        <span id="delete-text" class="confirm-text"></span>
+        <div class="confirm-actions">
+          <button id="delete-cancel-button" class="btn btn-ghost" type="button">Annuleren</button>
+          <button id="delete-confirm-button" class="btn btn-secondary btn-danger" type="button">Verwijderen</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="./format.js"></script>
+    <script src="./dom.js"></script>
+    <script src="./state.js"></script>
+    <script src="./chat-view.js"></script>
+    <script src="./sidebar.js"></script>
+    <script src="./composer.js"></script>
     <script src="./settings.js"></script>
-    <script src="./documents.js"></script>
+    <script src="./app.js"></script>
   </body>
 </html>

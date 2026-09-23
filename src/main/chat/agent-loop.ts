@@ -1,10 +1,11 @@
 import { streamChat } from '../ollama-client';
-import type { ChatMessage } from '../../shared/ipc-types';
+import type { ChatMessage, ToolCallInfo, ToolResultInfo } from '../../shared/ipc-types';
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
 import { withTimeout } from '../timeout';
 import type { ToolMode } from './capabilities';
+import { buildPreviewItems, callQuery, describeCall, describeResult } from './tool-display';
 import { buildToolResultMessage, normalizeNativeToolCalls, tryExtractPromptToolCall, type ToolCall } from './tool-protocol';
 
 const MAX_ITERATIONS = 5;
@@ -20,54 +21,9 @@ export interface AgentContext {
 
 export interface AgentEvents {
   onToken(text: string): void;
-  onToolCall(label: string): void;
-  /** preview: de exacte (gesaneerde) inhoud die het model krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
-  onToolResult(summary: string, ok: boolean, preview: string): void;
-}
-
-function describeCall(call: ToolCall): string {
-  if (call.name === 'web_search' && typeof call.args.query === 'string') {
-    return `Zoekt naar: "${call.args.query}"`;
-  }
-  if (call.name === 'web_fetch' && typeof call.args.url === 'string') {
-    return `Haalt op: ${call.args.url}`;
-  }
-  if (call.name === 'remember' && typeof call.args.fact === 'string') {
-    return `Onthoudt: "${call.args.fact}"`;
-  }
-  if (call.name === 'search_documents' && typeof call.args.query === 'string') {
-    return `Doorzoekt documenten: "${call.args.query}"`;
-  }
-  return `Roept tool aan: ${call.name}`;
-}
-
-function describeResult(call: ToolCall, ok: boolean, result: unknown): string {
-  const asRecord = result && typeof result === 'object' ? (result as Record<string, unknown>) : null;
-
-  if (!ok) {
-    const message = typeof asRecord?.error === 'string' ? asRecord.error : 'onbekende fout';
-    return `Mislukt: ${message}`;
-  }
-  if (call.name === 'web_search' && Array.isArray(asRecord?.results)) {
-    const n = (asRecord.results as unknown[]).length;
-    return `${n} resultaat${n === 1 ? '' : 'en'} gevonden`;
-  }
-  if (call.name === 'web_fetch' && typeof asRecord?.content === 'string') {
-    return `Pagina opgehaald (${asRecord.content.length} tekens)`;
-  }
-  if (call.name === 'remember' && asRecord?.stored === true) {
-    return 'Feit opgeslagen';
-  }
-  if (call.name === 'search_documents' && Array.isArray(asRecord?.results)) {
-    const results = asRecord.results as unknown[];
-    const documentCount = new Set(
-      results
-        .map((r) => (r && typeof r === 'object' ? (r as Record<string, unknown>).document : undefined))
-        .filter((d): d is string => typeof d === 'string'),
-    ).size;
-    return `${results.length} passage${results.length === 1 ? '' : 's'} uit ${documentCount} document${documentCount === 1 ? '' : 'en'}`;
-  }
-  return 'Tool-aanroep afgerond';
+  onToolCall(info: ToolCallInfo): void;
+  /** info.preview: de exacte (gesaneerde) inhoud die het model krijgt — zichtbaar vóór gebruik, zie CLAUDE.md. */
+  onToolResult(info: ToolResultInfo): void;
 }
 
 async function executeCall(call: ToolCall, tools: Map<string, ToolDefinition>): Promise<{ ok: boolean; result: unknown }> {
@@ -101,6 +57,14 @@ const REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE =
   'expliciet te bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
 
 const EXTERNAL_CONTENT_TOOLS = new Set(['web_search', 'web_fetch', 'search_documents']);
+
+function callInfo(call: ToolCall): ToolCallInfo {
+  return { tool: call.name, query: callQuery(call), label: describeCall(call) };
+}
+
+function failure(summary: string, preview: string): ToolResultInfo {
+  return { summary, ok: false, preview, items: [], durationMs: 0 };
+}
 
 export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<ChatMessage[]> {
   const turnMessages = [...messages];
@@ -186,8 +150,8 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           { name: 'onbekend', args: {} },
           JSON.stringify({ error: malformedError }),
         );
-        events.onToolCall('Onherkenbare tool-aanroep');
-        events.onToolResult(`Mislukt: ${malformedError}`, false, malformedError);
+        events.onToolCall({ tool: 'onbekend', query: '', label: 'Onherkenbare tool-aanroep' });
+        events.onToolResult(failure(`Mislukt: ${malformedError}`, malformedError));
         turnMessages.push(notice);
         appended.push(notice);
         continue;
@@ -212,7 +176,8 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     if (seenCalls.has(dedupeKey)) {
       const duplicateNotice = 'Deze tool-aanroep is al eerder met dezelfde argumenten uitgevoerd.';
       const notice = buildToolResultMessage(ctx.toolMode, call, JSON.stringify({ error: duplicateNotice }));
-      events.onToolResult(`Overgeslagen: ${duplicateNotice}`, false, duplicateNotice);
+      events.onToolCall(callInfo(call));
+      events.onToolResult(failure(`Overgeslagen: ${duplicateNotice}`, duplicateNotice));
       turnMessages.push(notice);
       appended.push(notice);
       break;
@@ -220,8 +185,8 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     seenCalls.add(dedupeKey);
 
     if (call.name === 'remember' && usedExternalContentThisTurn) {
-      events.onToolCall(describeCall(call));
-      events.onToolResult(`Geweigerd: ${REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE}`, false, REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE);
+      events.onToolCall(callInfo(call));
+      events.onToolResult(failure(`Geweigerd: ${REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE}`, REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE));
       const notice = buildToolResultMessage(
         ctx.toolMode,
         call,
@@ -232,14 +197,22 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       continue;
     }
 
-    events.onToolCall(describeCall(call));
+    events.onToolCall(callInfo(call));
+    const startedAt = Date.now();
     const { ok, result } = await executeCall(call, ctx.tools);
+    const durationMs = Date.now() - startedAt;
     if (ok && EXTERNAL_CONTENT_TOOLS.has(call.name)) {
       usedExternalContentThisTurn = true;
     }
 
     const sanitized = sanitizeExternalContent(JSON.stringify(result));
-    events.onToolResult(describeResult(call, ok, result), ok, sanitized);
+    events.onToolResult({
+      summary: describeResult(call, ok, result),
+      ok,
+      preview: sanitized,
+      items: buildPreviewItems(call, ok, result),
+      durationMs,
+    });
 
     const toolResultMessage = buildToolResultMessage(ctx.toolMode, call, sanitized);
     turnMessages.push(toolResultMessage);

@@ -1,4 +1,5 @@
 import type {
+  AppDefaults,
   ChatMessage,
   ChunkPayload,
   DocumentInfo,
@@ -7,6 +8,7 @@ import type {
   ErrorPayload,
   MemoryFact,
   ToolCallPayload,
+  ToolPreviewItem,
   ToolResultPayload,
 } from '../shared/ipc-types';
 
@@ -14,6 +16,8 @@ declare global {
   type RelayChatMessage = ChatMessage;
   type RelayMemoryFact = MemoryFact;
   type RelayDocumentInfo = DocumentInfo;
+  type RelayToolPreviewItem = ToolPreviewItem;
+  type RelayAppDefaults = AppDefaults;
 
   interface RelayMemoryAPI {
     list(): Promise<RelayMemoryFact[]>;
@@ -31,6 +35,7 @@ declare global {
   }
 
   interface RelayAPI {
+    defaults(): Promise<RelayAppDefaults>;
     sendMessage(messages: RelayChatMessage[]): string;
     onChunk(callback: (payload: ChunkPayload) => void): void;
     onToolCall(callback: (payload: ToolCallPayload) => void): void;

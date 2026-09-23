@@ -20,6 +20,18 @@ module.exports = [
     },
   },
   {
+    // Renderer-bestanden zijn import-vrije classic scripts die via <script>
+    // top-level functies met elkaar delen (zie index.html) — per bestand lijken
+    // die ongebruikt. Lokale variabelen blijven wél gecontroleerd.
+    files: ['src/renderer/**/*.ts'],
+    languageOptions: {
+      sourceType: 'script',
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { vars: 'local' }],
+    },
+  },
+  {
     ignores: ['dist/**', 'node_modules/**'],
   },
 ];

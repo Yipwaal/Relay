@@ -60,9 +60,18 @@ export interface ChatStatusPayload {
   status: 'loading-model';
 }
 
+/** Ollama-opties per gesprek; config.json levert de standaard voor nieuwe gesprekken. */
+export interface ChatOptions {
+  /** Context window in tokens. */
+  numCtx: number;
+  /** Max. antwoordlengte in tokens; -1 = onbeperkt. */
+  numPredict: number;
+  temperature: number;
+}
+
 export interface AppDefaults {
   model: string;
-  numCtx: number;
+  options: ChatOptions;
 }
 
 export interface DonePayload {
@@ -75,7 +84,7 @@ export interface ConversationSummary {
   id: number;
   title: string;
   model: string;
-  numCtx: number;
+  options: ChatOptions;
   createdAt: number;
   updatedAt: number;
   /** Documenten die aan dít gesprek hangen (niet de globale uit Fase 4). */
@@ -130,4 +139,16 @@ export interface DocumentProgressPayload {
   title: string;
   done: number;
   total: number;
+}
+
+/** Een lokaal geïnstalleerd chatmodel (uit Ollama's /api/tags, aangevuld met /api/show). */
+export interface LocalModel {
+  name: string;
+  sizeBytes: number;
+  /** Zoals Ollama het meldt, bv. "12.2B". */
+  parameterSize: string;
+  family: string;
+  quantization: string;
+  /** Geschatte KV-cache per token in bytes (f16); null als het model dat niet prijsgeeft. */
+  kvBytesPerToken: number | null;
 }

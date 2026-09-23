@@ -444,8 +444,15 @@ button {
   color: var(--text-muted);
 }
 
+.model-picker {
+  position: relative;
+  flex: none;
+}
+
 .model-pill {
   flex: none;
+  cursor: pointer;
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -462,8 +469,129 @@ button {
   height: 7px;
 }
 
+.model-pill:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.model-pill:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .model-pill-name {
   font: 800 13px/1 var(--font-heading);
+}
+
+.model-pill-params {
+  font: 600 11.5px/1 var(--font-body);
+  color: var(--text-muted);
+}
+
+.model-pill-chevron {
+  color: var(--text-2);
+}
+
+.model-menu {
+  position: absolute;
+  right: 0;
+  top: 48px;
+  z-index: 26;
+  width: 340px;
+  background: var(--surface-2);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+}
+
+.menu-label {
+  padding: 10px 12px 8px;
+  font: 800 10px/1 var(--font-heading);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.model-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.model-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: var(--r-chip);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  background: transparent;
+  color: var(--text);
+}
+
+.model-item:hover,
+.model-item.is-selected {
+  background: var(--accent-soft);
+}
+
+.model-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.model-item-name {
+  font: 800 13px/1 var(--font-heading);
+}
+
+.model-item.is-selected .model-item-name {
+  color: var(--accent-strong);
+}
+
+.model-item-desc {
+  font: 600 11px/1.2 var(--font-body);
+  color: var(--text-muted);
+}
+
+.model-item-size {
+  font: 700 11px/1 var(--font-body);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-item > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.model-menu-empty,
+.model-menu-error {
+  margin: 0;
+  padding: 10px 12px;
+  font: 400 12.5px/1.5 var(--font-body);
+  color: var(--text-2);
+}
+
+.model-menu-error {
+  color: var(--neg);
+}
+
+.menu-footer {
+  margin: 6px 4px 2px;
+  padding: 10px 8px 6px;
+  border-top: 1px solid var(--divider);
+  font: 400 12px/1.5 var(--font-body);
+  color: var(--text-2);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
 }
 
 .chat-body {
@@ -1172,6 +1300,95 @@ button {
 .text-input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.option-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.option-key {
+  font: 500 11.5px/1 var(--font-mono);
+  color: var(--text-muted);
+}
+
+.option-spacer {
+  flex: 1;
+}
+
+.option-value {
+  font: 800 14px/1 var(--font-heading);
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+.segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+}
+
+.segment {
+  flex: 1;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  font: 700 12.5px/1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.segment:hover {
+  color: var(--text);
+}
+
+.segment.is-selected {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.option-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.info-chip {
+  font: 700 11.5px/1 var(--font-body);
+  padding: 8px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-text {
+  font: 700 12px/1.5 var(--font-body);
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+
+.budget-text.is-tight {
+  color: var(--neg);
+}
+
+.temp-input {
+  width: 100%;
+  margin: 4px 0 0;
+}
+
+.temp-scale {
+  display: flex;
+  justify-content: space-between;
+  font: 800 9.5px/1 var(--font-heading);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .settings-footer {

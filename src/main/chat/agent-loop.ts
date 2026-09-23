@@ -1,5 +1,5 @@
 import { streamChat } from '../ollama-client';
-import type { ChatMessage, ToolCallInfo, ToolDisplay, ToolResultInfo } from '../../shared/ipc-types';
+import type { ChatMessage, ChatOptions, ToolCallInfo, ToolDisplay, ToolResultInfo } from '../../shared/ipc-types';
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
@@ -22,7 +22,7 @@ export interface AgentContext {
   model: string;
   toolMode: ToolMode;
   tools: Map<string, ToolDefinition>;
-  numCtx: number;
+  options: ChatOptions;
   /** Stop-knop: breekt de lopende stream of tool-aanroep af; de beurt eindigt dan netjes. */
   signal?: AbortSignal;
 }
@@ -136,7 +136,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let assistantText = '';
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, numCtx: ctx.numCtx, signal: ctx.signal },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, options: ctx.options, signal: ctx.signal },
         {
           onToken: (token) => {
             assistantText += token;
@@ -171,7 +171,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let malformedError: string | null = null;
 
       await streamChat(
-        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal, numCtx: ctx.numCtx },
+        { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal, options: ctx.options },
         {
           onToken: (token) => {
             rawBuffer += token;

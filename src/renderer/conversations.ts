@@ -1,6 +1,5 @@
 const chatBodyEl = document.getElementById('chat-body') as HTMLElement;
 const emptyIntroEl = document.getElementById('empty-intro') as HTMLElement;
-const modelPillNameEl = document.getElementById('model-pill-name') as HTMLElement;
 
 function renderActive(): void {
   const c = activeConversation();
@@ -10,7 +9,7 @@ function renderActive(): void {
   emptyIntroEl.textContent =
     `Alles blijft op deze computer. ${c.model} draait lokaal via Ollama; Relay kan je geheugen gebruiken, ` +
     'op het web zoeken en de documenten doorzoeken die je aan dit gesprek toevoegt.';
-  modelPillNameEl.textContent = c.model;
+  renderModelPicker();
   renderMessages(c);
   renderHeader();
   renderSidebar();
@@ -58,7 +57,7 @@ async function newConversation(): Promise<void> {
     return;
   }
   try {
-    const created = toConversationView(await window.relay.conversations.create());
+    const created = toConversationView(await window.relay.conversations.create(current?.id));
     created.loaded = true;
     appState.conversations.unshift(created);
     await selectConversation(created.id);

@@ -110,7 +110,7 @@ test('before-quit sluit af ook als de config ongeldig is', async () => {
 test('unloadLoadedModels slaat het model over dat geladen moet blijven', async () => {
   const calls: Call[] = [];
   mockOllama(['gemma4:12b', 'llama3.1:8b'], [], calls);
-  const unloaded = await unloadLoadedModels(BASE, 1000, 'llama3.1:8b');
+  const unloaded = await unloadLoadedModels(BASE, 1000, ['llama3.1:8b']);
   assert.deepEqual(unloaded, ['gemma4:12b']);
 });
 

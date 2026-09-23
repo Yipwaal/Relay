@@ -5,15 +5,16 @@ import { resolveToolMode } from '../chat/capabilities';
 import { buildSystemPrompt, MAX_MEMORY_CHARS } from '../chat/system-prompt';
 import { runAgentTurn, type AppendedEntry } from '../chat/agent-loop';
 import { createOllamaEmbedder } from '../ollama-embed';
-import { isModelLoaded } from '../ollama-lifecycle';
+import { isModelLoaded, unloadLoadedModels } from '../ollama-lifecycle';
 import { toModelHistory } from '../conversations/history';
 import { generateTitle, provisionalTitle } from '../conversations/title';
-import type { ConversationStore, NewMessage } from '../conversations/store';
+import { resolveOptions, type ConversationStore, type NewMessage } from '../conversations/store';
 import type { MemoryStore } from '../memory/store';
 import type { DocumentStore } from '../documents/store';
 import type { AppDefaults, ChatMessage, ConversationUpdatedPayload } from '../../shared/ipc-types';
 
 const LOADED_CHECK_TIMEOUT_MS = 500;
+const UNLOAD_TIMEOUT_MS = 3000;
 const MAX_MESSAGE_CHARS = 100_000;
 
 interface ChatSendPayload {
@@ -130,7 +131,8 @@ async function handleChatRequest(
     const conversation = conversationStore.get(conversationId);
     if (!conversation) throw new Error('Gesprek bestaat niet (meer).');
     const config = loadConfig();
-    const { model, numCtx } = conversation;
+    const { model } = conversation;
+    const options = resolveOptions(conversation, config.options);
 
     const isFirstTurn = conversationStore.listMessages(conversationId).length === 0;
     conversationStore.appendMessages(conversationId, [userRow(text)]);
@@ -168,13 +170,16 @@ async function handleChatRequest(
     );
 
     // Cold start: een 12B-model laden kan tientallen seconden duren. Laat de
-    // UI dat zien i.p.v. dat het lijkt alsof er niets gebeurt.
+    // UI dat zien i.p.v. dat het lijkt alsof er niets gebeurt. Staat er nog
+    // een ánder chatmodel in het geheugen (vorig gesprek), haal dat eerst weg
+    // zodat er geen twee grote modellen tegelijk resident blijven.
     if ((await isModelLoaded(config.ollamaUrl, model, LOADED_CHECK_TIMEOUT_MS)) === false) {
       safeSend(sender, 'relay:chat:status', { requestId, status: 'loading-model' });
+      await unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel]);
     }
 
     let lastAnswer = '';
-    await runAgentTurn({ ollamaUrl: config.ollamaUrl, model, toolMode, tools, numCtx, signal: controller.signal }, turnMessages, {
+    await runAgentTurn({ ollamaUrl: config.ollamaUrl, model, toolMode, tools, options, signal: controller.signal }, turnMessages, {
       onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
       onToolCall: (info) => safeSend(sender, 'relay:chat:tool-call', { requestId, ...info }),
       onToolResult: (info) => safeSend(sender, 'relay:chat:tool-result', { requestId, ...info }),
@@ -213,7 +218,7 @@ async function handleChatRequest(
 export function registerChatHandler(deps: ChatDeps): void {
   ipcMain.handle('relay:app:defaults', (): AppDefaults => {
     const config = loadConfig();
-    return { model: config.model, numCtx: config.numCtx };
+    return { model: config.model, options: config.options };
   });
 
   ipcMain.on('relay:chat:send', (event: IpcMainEvent, payload: unknown) => {

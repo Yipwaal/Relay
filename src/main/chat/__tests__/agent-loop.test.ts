@@ -41,7 +41,7 @@ function finalAnswerBody(text: string): string {
 }
 
 function baseCtx(tools: Map<string, ToolDefinition>): AgentContext {
-  return { ollamaUrl: 'http://localhost:11434', model: 'test-model', toolMode: 'native', tools, numCtx: 8192 };
+  return { ollamaUrl: 'http://localhost:11434', model: 'test-model', toolMode: 'native', tools, options: { numCtx: 8192, numPredict: -1, temperature: 0.7 } };
 }
 
 function collectingEvents(): { events: AgentEvents; toolResults: Array<{ summary: string; ok: boolean }>; toolCalls: string[] } {

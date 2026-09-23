@@ -14,6 +14,9 @@ interface FormatModule {
   startedLabel(ts: number, now: number): string;
   formatSeconds(ms: number): string;
   formatBytes(bytes: number): string;
+  budgetInfo(numCtx: number, numPredict: number): { text: string; tight: boolean };
+  contextWordsLabel(numCtx: number): string;
+  kvMemoryLabel(numCtx: number, kvBytesPerToken: number, model: string): string;
   groupByDate<T extends { updatedAt: number }>(items: T[], now: number): Array<{ label: string; items: T[] }>;
 }
 
@@ -81,4 +84,19 @@ test('groupByDate sorteert nieuwste eerst en laat lege groepen weg', () => {
       ['Eerder', [1]],
     ],
   );
+});
+
+test('budgetInfo rekent de ruimte na num_predict uit en waarschuwt als het krap wordt', () => {
+  const ok = f.budgetInfo(8192, 1024);
+  assert.equal(ok.tight, false);
+  assert.match(ok.text, /8\.192 tokens blijven er 7\.168 over/);
+  const tight = f.budgetInfo(2048, 2048);
+  assert.equal(tight.tight, true);
+  assert.match(tight.text, /maar 0 over/);
+  assert.match(f.budgetInfo(8192, -1).text, /^Onbeperkt/);
+});
+
+test('contextWordsLabel en kvMemoryLabel', () => {
+  assert.equal(f.contextWordsLabel(8192), '≈ 5.900 woorden tegelijk');
+  assert.equal(f.kvMemoryLabel(8192, 131072, 'llama3.1:8b'), '≈ 1,0 GB extra werkgeheugen met llama3.1:8b');
 });

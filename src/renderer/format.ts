@@ -81,3 +81,40 @@ function groupByDate<T extends { updatedAt: number }>(items: T[], now: number): 
     items: sorted.filter((item) => dateGroupLabel(item.updatedAt, now) === label),
   })).filter((group) => group.items.length > 0);
 }
+
+function formatInt(n: number): string {
+  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function tokensLabel(n: number): string {
+  return n < 0 ? 'Onbeperkt' : `${formatInt(n)} tokens`;
+}
+
+/** Ruwe vuistregel: ~0,72 woord per token voor Nederlands/Engels, afgerond op honderdtallen. */
+function contextWordsLabel(numCtx: number): string {
+  return `≈ ${formatInt(Math.round((numCtx * 0.72) / 100) * 100)} woorden tegelijk`;
+}
+
+function kvMemoryLabel(numCtx: number, kvBytesPerToken: number, model: string): string {
+  const gb = (numCtx * kvBytesPerToken) / 1024 ** 3;
+  return `≈ ${gb.toFixed(1).replace('.', ',')} GB extra werkgeheugen met ${model}`;
+}
+
+/**
+ * Hoeveel van het context window overblijft voor vraag, gesprek, geheugen en
+ * documenten als num_predict daarvan afgaat. "Onbeperkt" reserveert niets
+ * vast, maar kan het hele venster opeten — gerekend als een kwart.
+ */
+function budgetInfo(numCtx: number, numPredict: number): { text: string; tight: boolean } {
+  if (numPredict < 0) {
+    return { text: "Onbeperkt: het model schrijft door tot het context window vol is. Zo kan een gesprek sneller het begin 'vergeten'.", tight: false };
+  }
+  const left = numCtx - numPredict;
+  if (left < numCtx / 2) {
+    return {
+      text: `Te krap: van de ${formatInt(numCtx)} tokens blijven er maar ${formatInt(Math.max(0, left))} over voor je vraag, het gesprek en je documenten. Kies een groter context window of een kortere antwoordlengte.`,
+      tight: true,
+    };
+  }
+  return { text: `Van de ${formatInt(numCtx)} tokens blijven er ${formatInt(left)} over voor je vraag, het gesprek, je geheugen en je documenten.`, tight: false };
+}

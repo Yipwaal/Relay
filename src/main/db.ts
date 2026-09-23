@@ -119,5 +119,19 @@ export function openRelayDb(filePath: string): DatabaseSync {
     migrateToV3(db);
   }
 
+  if (version < 4) {
+    // Fase 5d: max. antwoordlengte en temperature per gesprek. NULL = standaard uit config.json.
+    db.exec('BEGIN');
+    try {
+      db.exec('ALTER TABLE conversations ADD COLUMN num_predict INTEGER');
+      db.exec('ALTER TABLE conversations ADD COLUMN temperature REAL');
+      db.exec('PRAGMA user_version = 4');
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   return db;
 }

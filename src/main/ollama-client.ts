@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../shared/ipc-types';
+import type { ChatMessage, ChatOptions } from '../shared/ipc-types';
 import { fetchOllama } from './ollama-errors';
 
 export type { ChatMessage };
@@ -72,8 +72,8 @@ export interface StreamChatOptions {
   messages: ChatMessage[];
   tools?: ToolSchema[];
   signal?: AbortSignal;
-  /** Ollama's context-window (num_ctx). Zie config.ts — memory + tool-resultaten kunnen de default snel overschrijden. */
-  numCtx?: number;
+  /** num_ctx / num_predict / temperature — per gesprek instelbaar. */
+  options?: ChatOptions;
 }
 
 export interface StreamChatHandlers {
@@ -88,13 +88,17 @@ export interface StreamChatHandlers {
  * behandeld, niet als fout.
  */
 export async function streamChat(options: StreamChatOptions, handlers: StreamChatHandlers): Promise<void> {
-  const { baseUrl, model, messages, tools, signal, numCtx } = options;
+  const { baseUrl, model, messages, tools, signal } = options;
   const body: Record<string, unknown> = { model, messages: toOllamaMessages(messages), stream: true };
   if (tools && tools.length > 0) {
     body.tools = tools;
   }
-  if (typeof numCtx === 'number') {
-    body.options = { num_ctx: numCtx };
+  if (options.options) {
+    body.options = {
+      num_ctx: options.options.numCtx,
+      num_predict: options.options.numPredict,
+      temperature: options.options.temperature,
+    };
   }
 
   let response: Response;

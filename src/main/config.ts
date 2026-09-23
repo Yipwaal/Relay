@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as dotenv from 'dotenv';
+import type { ChatOptions } from '../shared/ipc-types';
 
 dotenv.config();
 
@@ -11,8 +12,8 @@ export interface RelayConfig {
   ollamaUrl: string;
   systemPrompt: string;
   toolMode: ToolModeSetting;
-  /** Ollama's context-window (num_ctx). Memory + tool-resultaten kunnen de default snel overschrijden. */
-  numCtx: number;
+  /** Standaard voor nieuwe gesprekken; elk gesprek bewaart daarna zijn eigen kopie (zie conversations/store.ts). */
+  options: ChatOptions;
   /** Model voor document-embeddings (Fase 4), apart te pullen via `ollama pull <model>`. */
   embedModel: string;
   /** Alleen uit .env (OLLAMA_API_KEY) — nooit in config.json, dat in git staat. */
@@ -26,8 +27,26 @@ interface RawConfig {
   ollamaUrl: string;
   systemPrompt: string;
   toolMode: ToolModeSetting;
-  numCtx: number;
+  options: { num_ctx: number; num_predict: number; temperature: number };
   embedModel: string;
+}
+
+export function isValidNumCtx(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 512 && value <= 262_144;
+}
+
+export function isValidNumPredict(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && (value === -1 || (value >= 16 && value <= 131_072));
+}
+
+export function isValidTemperature(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 2;
+}
+
+function isRawOptions(value: unknown): value is RawConfig['options'] {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return isValidNumCtx(v.num_ctx) && isValidNumPredict(v.num_predict) && isValidTemperature(v.temperature);
 }
 
 function isToolModeSetting(value: unknown): value is ToolModeSetting {
@@ -42,8 +61,7 @@ function isRelayConfig(value: unknown): value is RawConfig {
     typeof v.ollamaUrl === 'string' &&
     typeof v.systemPrompt === 'string' &&
     isToolModeSetting(v.toolMode) &&
-    typeof v.numCtx === 'number' &&
-    v.numCtx > 0 &&
+    isRawOptions(v.options) &&
     typeof v.embedModel === 'string'
   );
 }
@@ -79,7 +97,10 @@ export function loadConfig(): RelayConfig {
   const parsed: unknown = JSON.parse(raw);
 
   if (!isRelayConfig(parsed)) {
-    throw new Error(`Ongeldige config in ${CONFIG_PATH}: verwacht model, ollamaUrl en systemPrompt als strings.`);
+    throw new Error(
+      `Ongeldige config in ${CONFIG_PATH}: verwacht model, ollamaUrl, systemPrompt, toolMode, embedModel en ` +
+        'options { num_ctx (512–262144), num_predict (-1 of 16–131072), temperature (0–2) }.',
+    );
   }
 
   const ollamaUrl = process.env.OLLAMA_URL ?? parsed.ollamaUrl;
@@ -90,7 +111,7 @@ export function loadConfig(): RelayConfig {
     ollamaUrl,
     systemPrompt: parsed.systemPrompt,
     toolMode: parsed.toolMode,
-    numCtx: parsed.numCtx,
+    options: { numCtx: parsed.options.num_ctx, numPredict: parsed.options.num_predict, temperature: parsed.options.temperature },
     embedModel: process.env.RELAY_EMBED_MODEL ?? parsed.embedModel,
     ollamaApiKey: process.env.OLLAMA_API_KEY?.trim() || null,
   };

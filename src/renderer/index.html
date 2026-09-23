@@ -42,9 +42,19 @@
             <span id="chat-title" class="chat-title" title="Dubbelklik om te hernoemen"></span>
             <span id="chat-meta" class="chat-meta"></span>
           </div>
-          <div class="model-pill" title="Model voor dit gesprek">
-            <span class="status-dot"></span>
-            <span id="model-pill-name" class="model-pill-name"></span>
+          <div class="model-picker">
+            <button id="model-button" class="model-pill" type="button" title="Model voor dit gesprek" aria-haspopup="listbox" aria-expanded="false">
+              <span class="status-dot"></span>
+              <span id="model-pill-name" class="model-pill-name"></span>
+              <span id="model-pill-params" class="model-pill-params"></span>
+              <svg class="model-pill-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+            </button>
+            <div id="model-menu" class="model-menu" hidden>
+              <div class="menu-label">Lokale modellen</div>
+              <div id="model-list" class="model-list" role="listbox" aria-label="Lokale modellen"></div>
+              <p id="model-menu-error" class="model-menu-error" hidden></p>
+              <div class="menu-footer">Alleen modellen die al in Ollama staan. Nieuwe haal je op met <span class="mono">ollama pull</span>.</div>
+            </div>
           </div>
         </header>
 
@@ -112,6 +122,47 @@
           </form>
         </section>
 
+        <section class="settings-section">
+          <span id="options-scope" class="section-hint"></span>
+          <div class="option-head">
+            <span class="section-title">Context window</span>
+            <span class="option-key">num_ctx</span>
+            <span class="option-spacer"></span>
+            <span id="ctx-label" class="option-value"></span>
+          </div>
+          <div id="ctx-options" class="segmented" role="radiogroup" aria-label="Context window"></div>
+          <span class="section-hint">Hoeveel tekst het model tegelijk kan overzien: je vraag, het gesprek tot nu toe, je geheugen en de gevonden documentfragmenten. Groter onthoudt langere gesprekken, maar kost meer werkgeheugen en maakt antwoorden trager.</span>
+          <div class="option-chips">
+            <span id="ctx-words" class="info-chip"></span>
+            <span id="ctx-mem" class="info-chip" hidden></span>
+          </div>
+          <span id="ctx-reload-note" class="section-hint" hidden>Het model wordt bij je volgende vraag opnieuw geladen met dit context window — die ene keer duurt het antwoord wat langer.</span>
+        </section>
+
+        <section class="settings-section">
+          <div class="option-head">
+            <span class="section-title">Max. antwoordlengte</span>
+            <span class="option-key">num_predict</span>
+            <span class="option-spacer"></span>
+            <span id="predict-label" class="option-value"></span>
+          </div>
+          <div id="predict-options" class="segmented" role="radiogroup" aria-label="Max. antwoordlengte"></div>
+          <span class="section-hint">Hoe lang één antwoord maximaal mag worden. Het model stopt daarna, ook midden in een zin. Deze ruimte gaat af van het context window hierboven.</span>
+          <span id="budget-text" class="budget-text"></span>
+        </section>
+
+        <section class="settings-section">
+          <div class="option-head">
+            <span class="section-title">Temperature</span>
+            <span class="option-key">temperature</span>
+            <span class="option-spacer"></span>
+            <span id="temp-label" class="option-value"></span>
+          </div>
+          <input id="temp-input" class="temp-input" type="range" min="0" max="1.5" step="0.1" aria-label="Temperature" />
+          <div class="temp-scale"><span>Precies</span><span>Gebalanceerd</span><span>Creatief</span></div>
+          <span class="section-hint">Hoe voorspelbaar de antwoorden zijn. Laag geeft steeds hetzelfde, feitelijke antwoord — goed voor documenten doorzoeken. Hoog geeft meer variatie en creativiteit, maar het model zit er ook vaker naast.</span>
+        </section>
+
         <div class="settings-footer">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5"></path></svg>
           <span class="settings-footer-text">Documenten staan niet meer hier: je voegt ze per gesprek toe met de paperclip onder het invoerveld. Wijzigingen worden direct opgeslagen.</span>
@@ -141,6 +192,8 @@
     <script src="./composer.js"></script>
     <script src="./dropzone.js"></script>
     <script src="./settings.js"></script>
+    <script src="./options-panel.js"></script>
+    <script src="./model-picker.js"></script>
     <script src="./conversations.js"></script>
     <script src="./app.js"></script>
   </body>

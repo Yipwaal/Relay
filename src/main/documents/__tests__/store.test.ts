@@ -12,8 +12,8 @@ import { normalize } from '../vector';
 function setup() {
   const db = openRelayDb(':memory:');
   const conversations = createConversationStore(db);
-  const a = conversations.create({ model: 'm', numCtx: 8192 }).id;
-  const b = conversations.create({ model: 'm', numCtx: 8192 }).id;
+  const a = conversations.create({ model: 'm', options: { numCtx: 8192, numPredict: 1024, temperature: 0.7 } }).id;
+  const b = conversations.create({ model: 'm', options: { numCtx: 8192, numPredict: 1024, temperature: 0.7 } }).id;
   return { db, conversations, store: createDocumentStore(db), a, b };
 }
 
@@ -122,7 +122,7 @@ test('search en hasDocumentsForModel negeren een ander embedModel', () => {
   assert.equal(store.hasDocumentsForModel('ander-model', a), false);
 });
 
-test('migratie v2 → v3 behoudt bestaande documenten als globaal, doorzoekbaar in elk gesprek', () => {
+test('migratie v2 → v4 behoudt bestaande documenten als globaal, doorzoekbaar in elk gesprek', () => {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'relay-mig-')), 'relay.db');
   // Schema zoals Fase 4 het achterliet (user_version 2), met één document.
   const v2 = new DatabaseSync(file);
@@ -148,9 +148,9 @@ test('migratie v2 → v3 behoudt bestaande documenten als globaal, doorzoekbaar 
 
   const db = openRelayDb(file);
   const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  assert.equal(version.user_version, 3);
+  assert.equal(version.user_version, 4);
   const store = createDocumentStore(db);
-  const conversation = createConversationStore(db).create({ model: 'm', numCtx: 8192 });
+  const conversation = createConversationStore(db).create({ model: 'm', options: { numCtx: 8192, numPredict: 1024, temperature: 0.7 } });
   const docs = store.listDocuments(conversation.id);
   assert.equal(docs.length, 1);
   assert.equal(docs[0]?.conversationId, null);

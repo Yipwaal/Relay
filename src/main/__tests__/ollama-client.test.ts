@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitNdjsonLines, parseOllamaChunk } from '../ollama-client';
+import { splitNdjsonLines, parseOllamaChunk, streamChat } from '../ollama-client';
 
 test('splitNdjsonLines geeft complete regels en bewaart het restant', () => {
   const input = '{"a":1}\n{"a":2}\n{"a":3';
@@ -36,4 +36,22 @@ test('parseOllamaChunk parst een foutregel', () => {
   const chunk = parseOllamaChunk('{"error":"model not found","done":true}');
 
   assert.equal(chunk.error, 'model not found');
+});
+
+test('streamChat stuurt num_ctx, num_predict en temperature mee als options', async () => {
+  const original = globalThis.fetch;
+  let sent: Record<string, unknown> = {};
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ done: true }) + '\n', { status: 200 });
+  }) as typeof fetch;
+  try {
+    await streamChat(
+      { baseUrl: 'http://localhost:11434', model: 'm', messages: [], options: { numCtx: 16384, numPredict: -1, temperature: 0.3 } },
+      { onToken: () => undefined },
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(sent.options, { num_ctx: 16384, num_predict: -1, temperature: 0.3 });
 });

@@ -27,17 +27,22 @@ export async function unloadModel(baseUrl: string, model: string, signal?: Abort
   if (!response.ok) throw new Error(`unload van "${model}" mislukt: ${response.status}`);
 }
 
+function sameModel(a: string, b: string): boolean {
+  const norm = (name: string): string => (name.includes(':') ? name : `${name}:latest`);
+  return norm(a) === norm(b);
+}
+
 /**
- * Unloadt alle geladen modellen (optioneel behalve `keep`), parallel en
+ * Unloadt alle geladen modellen (behalve die in `keep`), parallel en
  * begrensd door timeoutMs. Gooit nooit: een gestopte of hangende Ollama mag
  * afsluiten of van model wisselen niet blokkeren. Geeft terug welke modellen
  * een unload-verzoek kregen.
  */
-export async function unloadLoadedModels(baseUrl: string, timeoutMs: number, keep?: string): Promise<string[]> {
+export async function unloadLoadedModels(baseUrl: string, timeoutMs: number, keep: string[] = []): Promise<string[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const loaded = (await listLoadedModels(baseUrl, controller.signal)).filter((name) => name !== keep);
+    const loaded = (await listLoadedModels(baseUrl, controller.signal)).filter((name) => !keep.some((k) => sameModel(name, k)));
     const results = await Promise.allSettled(loaded.map((model) => unloadModel(baseUrl, model, controller.signal)));
     results.forEach((result, i) => {
       if (result.status === 'rejected') {
@@ -62,7 +67,7 @@ export async function isModelLoaded(baseUrl: string, model: string, timeoutMs: n
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const loaded = await listLoadedModels(baseUrl, controller.signal);
-    return loaded.some((name) => name === model || name === `${model}:latest`);
+    return loaded.some((name) => sameModel(name, model));
   } catch {
     return null;
   } finally {

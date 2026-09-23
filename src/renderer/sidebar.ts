@@ -87,9 +87,9 @@ function renderSidebar(): void {
       h('div', { class: 'conv-group' }, [h('div', { class: 'conv-group-label', text: group.label }), ...group.items.map((c) => buildConversationItem(c, now))]),
     );
   }
+  const numCtx = activeConversation()?.options.numCtx ?? 0;
   factsSummaryEl.textContent =
-    `${countLabel(appState.factsCount, 'feit', 'feiten')} in geheugen` +
-    (appState.defaults.numCtx > 0 ? ` · context ${Math.round(appState.defaults.numCtx / 1024)}K` : '');
+    `${countLabel(appState.factsCount, 'feit', 'feiten')} in geheugen` + (numCtx > 0 ? ` · context ${Math.round(numCtx / 1024)}K` : '');
 }
 
 function renderHeader(): void {

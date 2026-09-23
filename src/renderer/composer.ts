@@ -99,7 +99,11 @@ async function runDocumentAdd(conversationId: number, add: () => Promise<unknown
     attachButtonEl.disabled = false;
     appState.indexing = null;
     if (conversationId === appState.activeId) await refreshDocuments().catch(() => undefined);
-    else renderDocChips();
+    else {
+      await refreshConversations().catch(() => undefined);
+      renderSidebar();
+      renderDocChips();
+    }
   }
 }
 

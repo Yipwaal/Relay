@@ -3,6 +3,10 @@
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent. Antwoord kort en duidelijk.",
   "toolMode": "auto",
-  "numCtx": 8192,
+  "options": {
+    "num_ctx": 8192,
+    "num_predict": 1024,
+    "temperature": 0.7
+  },
   "embedModel": "embeddinggemma"
 }

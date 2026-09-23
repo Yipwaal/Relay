@@ -22,6 +22,7 @@ async function sendCurrentDraft(): Promise<void> {
 
   appState.pending = { requestId: window.relay.sendMessage(c.id, text), conversationId: c.id, segment: null, stopping: false };
   updateSendButton();
+  renderModelPicker();
   renderSidebar();
   renderHeader();
 }
@@ -57,6 +58,7 @@ function finishSegment(pending: PendingRequest, conversation: ConversationView |
 function endRequest(): void {
   appState.pending = null;
   updateSendButton();
+  renderModelPicker();
   renderHeader();
   renderSidebar();
 }
@@ -160,6 +162,7 @@ async function initApp(): Promise<void> {
   }
 
   void refreshOllamaStatus();
+  refreshModels().catch(() => undefined);
   setInterval(() => void refreshOllamaStatus(), OLLAMA_STATUS_INTERVAL_MS);
 
   window.relay.memory

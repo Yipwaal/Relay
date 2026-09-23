@@ -1,5 +1,6 @@
 import type {
   AppDefaults,
+  ChatOptions,
   ChatStatusPayload,
   ChunkPayload,
   ConversationMessage,
@@ -9,6 +10,7 @@ import type {
   DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
+  LocalModel,
   MemoryFact,
   OllamaStatus,
   ToolCallPayload,
@@ -23,12 +25,17 @@ declare global {
   type RelayAppDefaults = AppDefaults;
   type RelayConversationSummary = ConversationSummary;
   type RelayConversationMessage = ConversationMessage;
+  type RelayLocalModel = LocalModel;
+  type RelayChatOptions = ChatOptions;
 
   interface RelayConversationsAPI {
     list(): Promise<RelayConversationSummary[]>;
-    create(): Promise<RelayConversationSummary>;
+    /** Neemt het model over van fromConversationId (als opgegeven); instellingen komen uit config.json. */
+    create(fromConversationId?: number): Promise<RelayConversationSummary>;
     rename(id: number, title: string): Promise<RelayConversationSummary>;
     remove(id: number): Promise<void>;
+    setModel(id: number, model: string): Promise<RelayConversationSummary>;
+    setOptions(id: number, options: RelayChatOptions): Promise<RelayConversationSummary>;
     messages(id: number): Promise<RelayConversationMessage[]>;
     onUpdated(callback: (payload: ConversationUpdatedPayload) => void): void;
   }
@@ -55,6 +62,7 @@ declare global {
     sendMessage(conversationId: number, text: string): string;
     stopMessage(requestId: string): void;
     ollamaStatus(): Promise<OllamaStatus>;
+    listModels(): Promise<RelayLocalModel[]>;
     onStatus(callback: (payload: ChatStatusPayload) => void): void;
     onChunk(callback: (payload: ChunkPayload) => void): void;
     onToolCall(callback: (payload: ToolCallPayload) => void): void;

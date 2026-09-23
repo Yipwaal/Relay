@@ -13,7 +13,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 2 — Web search + fetch (tool calling)
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
-- [ ] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓)
+- [x] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓, 5d modelkeuze + instellingen per gesprek ✓)
 
 ## Vereisten
 
@@ -43,15 +43,18 @@ De system prompt, het model en de Ollama-URL staan in `config/config.json`
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent.",
   "toolMode": "auto",
-  "numCtx": 8192,
+  "options": { "num_ctx": 8192, "num_predict": 1024, "temperature": 0.7 },
   "embedModel": "embeddinggemma"
 }
 ```
 
-`numCtx` is Ollama's context-window (`num_ctx`). Memory-feiten en
-tool-resultaten kunnen de kleine Ollama-default snel overschrijden; verhoog
-dit als gesprekken met veel feiten/tool-gebruik het begin van het gesprek
-lijken te "vergeten".
+`model` en `options` zijn de **standaard voor nieuwe gesprekken**; elk
+gesprek bewaart daarna zijn eigen model en instellingen (te wijzigen via de
+modelknop rechtsboven en ⚙ Instellingen). `options` gaat 1-op-1 mee naar
+Ollama's `/api/chat`: `num_ctx` is het context window (memory-feiten en
+tool-resultaten kunnen de kleine Ollama-default snel overschrijden),
+`num_predict` de max. antwoordlengte in tokens (`-1` = onbeperkt) en
+`temperature` hoe voorspelbaar de antwoorden zijn.
 
 Deze wordt bij elk bericht opnieuw ingelezen, dus een wijziging in de system
 prompt is direct van kracht bij het volgende bericht — geen herstart nodig.
@@ -92,6 +95,7 @@ src/
       store.ts         Gesprekken + berichten (één rij per model-bericht + kaartgegevens)
       history.ts       Rijen → modelgeschiedenis (per tool-modus) en → wat de UI toont
       title.ts         Voorlopige titel + korte samenvatting door hetzelfde lokale model
+    models.ts        Lokale chatmodellen (/api/tags + /api/show) + KV-cache-schatting
     chat/
       agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
@@ -124,10 +128,12 @@ src/
     composer.ts    Invoerveld, stop-knop, document-chips met voortgang, paperclip
     dropzone.ts    Bestanden op het chatvenster slepen (overlay)
     conversations.ts  Gesprek kiezen/maken/hernoemen/verwijderen, berichten lazy laden
+    model-picker.ts   Modeldropdown in de header
+    options-panel.ts  Context window / max. antwoordlengte / temperature per gesprek
     settings.ts    Instellingendialoog (geheugen)
     app.ts         Wiring: IPC-events, sneltoetsen, opstarten
   shared/      IPC-typedefinities die de preload-grens passeren
-config/        config.json — instelbare system prompt / model / URL / toolMode / numCtx / embedModel
+config/        config.json — system prompt / standaardmodel / URL / toolMode / standaard-options / embedModel
 assets/        icon.svg / icon.png
 .claude/agents/  Subagents voor Claude Code tijdens het bouwen
 ```
@@ -459,4 +465,40 @@ uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
   bestandsnaam en de bytes van het gesleepte bestand. Main leest daarvoor
   niets van schijf, dus ook zo kan de renderer geen willekeurig pad laten
   inlezen; dezelfde type- en groottegrenzen gelden (`.pdf`/`.docx` 5 MB).
+- **Bewust niet veranderd na de security-review**: in prompt-modus gaat een
+  eerder tool-aanroep-blok (```` ```relay_tool_call ````) mee terug in de
+  geschiedenis. Zo ziet het model zijn eigen aanroep gevolgd door het
+  resultaat — dat was al zo sinds Fase 2 en helpt een 12B-model het protocol
+  vast te houden. Als het model zo'n blok later "naäapt", is dat gewoon een
+  nieuwe aanroep die door dezelfde guards gaat en zichtbaar in de UI komt.
+- **Bekend restrisico, groter geworden**: de `remember`-na-externe-inhoud-guard
+  werkt per beurt. Nu gesprekken bewaard blijven, staat een opgehaalde pagina
+  of documentfragment ook ná een herstart nog in de context; een manipulatieve
+  tekst kan dus in een láter bericht alsnog een `remember` uitlokken. Elke
+  `remember` blijft wel zichtbaar (kaart in de chat, badge "Automatisch" in
+  het instellingenscherm) en is daar te verwijderen.
+
+### Model wisselen en instellingen per gesprek
+
+- **Modelknop rechtsboven**: toont de lokaal geïnstalleerde modellen uit
+  Ollama's `/api/tags` (met grootte, familie, parameters en quantisatie).
+  Embedding-modellen (`/api/show`-capability zonder `completion`) vallen weg;
+  daarmee kun je niet chatten. Main accepteert alleen een modelnaam die echt
+  in die lijst staat. Het gekozen model wordt bij het gesprek bewaard; een
+  nieuw gesprek neemt het model van het huidige gesprek over (zoals in het
+  design), de instellingen komen uit `config.json`.
+- **Eén groot model tegelijk in het geheugen**: bij wisselen, en bij een vraag
+  in een gesprek met een ander model, worden de andere geladen chatmodellen
+  direct ge-unload (`keep_alive: 0`); het embedding-model mag blijven.
+- **Context window, max. antwoordlengte, temperature** staan per gesprek in
+  de database (migratie v4; gesprekken van vóór v4 vallen terug op
+  `config.json`) en gaan als `options` mee naar `/api/chat`. Het
+  instellingenscherm laat zien hoeveel ruimte er na `num_predict` overblijft
+  (rood als het krap wordt), een ruwe woordenschatting, en — als het model
+  het via `/api/show` prijsgeeft — hoeveel extra werkgeheugen de KV-cache
+  ongeveer kost (lagen × KV-heads × key/value-dimensie × 2 bytes; bij
+  sliding-window-modellen valt het in de praktijk lager uit).
+- **`num_ctx` wijzigen laat Ollama het model herladen**: de eerstvolgende
+  vraag duurt dan wat langer. Dat is verwacht gedrag; het instellingenscherm
+  zegt het er meteen bij.
 

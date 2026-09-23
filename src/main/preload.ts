@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppDefaults,
+  ChatOptions,
   ChatStatusPayload,
   ChunkPayload,
   ConversationMessage,
@@ -10,6 +11,7 @@ import type {
   DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
+  LocalModel,
   MemoryFact,
   OllamaStatus,
   ToolCallPayload,
@@ -36,6 +38,9 @@ contextBridge.exposeInMainWorld('relay', {
   ollamaStatus(): Promise<OllamaStatus> {
     return ipcRenderer.invoke('relay:ollama:status');
   },
+  listModels(): Promise<LocalModel[]> {
+    return ipcRenderer.invoke('relay:models:list');
+  },
   onStatus: (callback: (payload: ChatStatusPayload) => void) => on('relay:chat:status', callback),
   onChunk: (callback: (payload: ChunkPayload) => void) => on('relay:chat:chunk', callback),
   onToolCall: (callback: (payload: ToolCallPayload) => void) => on('relay:chat:tool-call', callback),
@@ -46,14 +51,20 @@ contextBridge.exposeInMainWorld('relay', {
     list(): Promise<ConversationSummary[]> {
       return ipcRenderer.invoke('relay:conversations:list');
     },
-    create(): Promise<ConversationSummary> {
-      return ipcRenderer.invoke('relay:conversations:create');
+    create(fromConversationId?: number): Promise<ConversationSummary> {
+      return ipcRenderer.invoke('relay:conversations:create', fromConversationId);
     },
     rename(id: number, title: string): Promise<ConversationSummary> {
       return ipcRenderer.invoke('relay:conversations:rename', id, title);
     },
     remove(id: number): Promise<void> {
       return ipcRenderer.invoke('relay:conversations:delete', id);
+    },
+    setModel(id: number, model: string): Promise<ConversationSummary> {
+      return ipcRenderer.invoke('relay:conversations:set-model', id, model);
+    },
+    setOptions(id: number, options: ChatOptions): Promise<ConversationSummary> {
+      return ipcRenderer.invoke('relay:conversations:set-options', id, options);
     },
     messages(id: number): Promise<ConversationMessage[]> {
       return ipcRenderer.invoke('relay:conversations:messages', id);

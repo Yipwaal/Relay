@@ -38,7 +38,7 @@ function mockStreamingFetch(responses: string[][]): { calls: () => number } {
 }
 
 function ctx(toolMode: 'native' | 'prompt', tools: Map<string, ToolDefinition>, signal: AbortSignal): AgentContext {
-  return { ollamaUrl: 'http://localhost:11434', model: 'test-model', toolMode, tools, numCtx: 8192, signal };
+  return { ollamaUrl: 'http://localhost:11434', model: 'test-model', toolMode, tools, options: { numCtx: 8192, numPredict: -1, temperature: 0.7 }, signal };
 }
 
 test('stop in prompt-modus na het begin van een tool-blok laat geen protocoltekst zien', async () => {

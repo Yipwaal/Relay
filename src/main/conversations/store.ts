@@ -1,10 +1,29 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { ChatToolCall, ConversationSummary, ToolDisplay } from '../../shared/ipc-types';
+import type { ChatOptions, ChatToolCall, ToolDisplay } from '../../shared/ipc-types';
 
 export const MAX_TITLE_CHARS = 120;
 
-export interface ConversationRecord extends ConversationSummary {
+export interface ConversationRecord {
+  id: number;
+  title: string;
   titleIsCustom: boolean;
+  model: string;
+  numCtx: number;
+  /** null: nog nooit ingesteld (gesprek van vóór Fase 5d) — gebruik de standaard uit config.json. */
+  numPredict: number | null;
+  temperature: number | null;
+  createdAt: number;
+  updatedAt: number;
+  documentCount: number;
+}
+
+/** Vult ontbrekende instellingen aan met de standaard uit config.json. */
+export function resolveOptions(record: ConversationRecord, defaults: ChatOptions): ChatOptions {
+  return {
+    numCtx: record.numCtx,
+    numPredict: record.numPredict ?? defaults.numPredict,
+    temperature: record.temperature ?? defaults.temperature,
+  };
 }
 
 export type MessageRole = 'user' | 'assistant' | 'tool';
@@ -31,7 +50,9 @@ export type NewMessage = Omit<StoredMessage, 'id' | 'conversationId' | 'createdA
 export interface ConversationStore {
   list(): ConversationRecord[];
   get(id: number): ConversationRecord | undefined;
-  create(input: { model: string; numCtx: number }): ConversationRecord;
+  create(input: { model: string; options: ChatOptions }): ConversationRecord;
+  setModel(id: number, model: string): ConversationRecord;
+  setOptions(id: number, options: ChatOptions): ConversationRecord;
   /** Handmatige titel: wint daarna altijd van automatisch gegenereerde titels. */
   rename(id: number, title: string): ConversationRecord;
   /** Alleen als de gebruiker de titel niet zelf gezet heeft; geeft terug of er iets veranderde. */
@@ -48,6 +69,8 @@ interface ConversationRow {
   title_is_custom: number;
   model: string;
   num_ctx: number;
+  num_predict: number | null;
+  temperature: number | null;
   created_at: number;
   updated_at: number;
   document_count: number;
@@ -74,6 +97,8 @@ function toRecord(row: ConversationRow): ConversationRecord {
     titleIsCustom: row.title_is_custom === 1,
     model: row.model,
     numCtx: row.num_ctx,
+    numPredict: row.num_predict,
+    temperature: row.temperature,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     documentCount: row.document_count,
@@ -118,8 +143,11 @@ export function createConversationStore(db: DatabaseSync): ConversationStore {
   const listStmt = db.prepare(`${selectColumns} ORDER BY c.updated_at DESC, c.id DESC`);
   const getStmt = db.prepare(`${selectColumns} WHERE c.id = ?`);
   const insertStmt = db.prepare(
-    `INSERT INTO conversations (title, model, num_ctx, created_at, updated_at) VALUES ('Nieuw gesprek', ?, ?, ?, ?)`,
+    `INSERT INTO conversations (title, model, num_ctx, num_predict, temperature, created_at, updated_at)
+     VALUES ('Nieuw gesprek', ?, ?, ?, ?, ?, ?)`,
   );
+  const setModelStmt = db.prepare('UPDATE conversations SET model = ? WHERE id = ?');
+  const setOptionsStmt = db.prepare('UPDATE conversations SET num_ctx = ?, num_predict = ?, temperature = ? WHERE id = ?');
   const renameStmt = db.prepare('UPDATE conversations SET title = ?, title_is_custom = 1 WHERE id = ?');
   const autoTitleStmt = db.prepare('UPDATE conversations SET title = ? WHERE id = ? AND title_is_custom = 0');
   const deleteStmt = db.prepare('DELETE FROM conversations WHERE id = ?');
@@ -146,10 +174,20 @@ export function createConversationStore(db: DatabaseSync): ConversationStore {
       return row ? toRecord(row) : undefined;
     },
 
-    create({ model, numCtx }) {
+    create({ model, options }) {
       const now = Date.now();
-      const result = insertStmt.run(model, numCtx, now, now);
+      const result = insertStmt.run(model, options.numCtx, options.numPredict, options.temperature, now, now);
       return requireConversation(Number(result.lastInsertRowid));
+    },
+
+    setModel(id, model) {
+      setModelStmt.run(model, id);
+      return requireConversation(id);
+    },
+
+    setOptions(id, options) {
+      setOptionsStmt.run(options.numCtx, options.numPredict, options.temperature, id);
+      return requireConversation(id);
     },
 
     rename(id, title) {

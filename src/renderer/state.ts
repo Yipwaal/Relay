@@ -42,7 +42,9 @@ interface IndexingState {
 const appState = {
   conversations: [] as ConversationView[],
   activeId: 0,
-  defaults: { model: '', numCtx: 0 } as RelayAppDefaults,
+  defaults: { model: '', options: { numCtx: 0, numPredict: -1, temperature: 0.7 } } as RelayAppDefaults,
+  /** Lokaal geïnstalleerde chatmodellen (dropdown); leeg tot de eerste keer opgehaald. */
+  models: [] as RelayLocalModel[],
   /** Documenten die in het actieve gesprek doorzoekbaar zijn (eigen + globale). */
   documents: [] as RelayDocumentInfo[],
   indexing: null as IndexingState | null,

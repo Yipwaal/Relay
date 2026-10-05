@@ -34,6 +34,7 @@ async function selectConversation(id: number): Promise<void> {
   appState.activeId = id;
   appState.renamingId = null;
   appState.documents = [];
+  releaseStoredImageUrls();
   clearComposerError();
   try {
     await Promise.all([loadConversation(c), refreshDocuments()]);

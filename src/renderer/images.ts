@@ -74,6 +74,22 @@ function storedImageUrl(id: number): Promise<string> {
   return url;
 }
 
+/**
+ * Bij wisselen van gesprek: de miniaturen van het vorige gesprek gaan uit
+ * beeld (renderActive bouwt alles opnieuw op), dus hun blob-URL's — tot 10 MB
+ * per afbeelding — kunnen vrij. Nog niet verstuurde afbeeldingen (de invoer)
+ * en die van net verstuurde berichten blijven staan.
+ */
+function releaseStoredImageUrls(): void {
+  for (const url of storedImageUrls.values()) {
+    url.then(
+      (value) => URL.revokeObjectURL(value),
+      () => undefined,
+    );
+  }
+  storedImageUrls.clear();
+}
+
 imageButtonEl.addEventListener('click', () => imageInputEl.click());
 
 imageInputEl.addEventListener('change', () => {

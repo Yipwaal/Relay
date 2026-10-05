@@ -29,12 +29,12 @@ export interface AttemptStores {
 
 /** Afbeeldingen voor de geschiedenis: echte beelden alleen voor een beeldmodel en de recentste vragen. */
 function historyImages(rows: StoredMessage[], conversationId: number, imageStore: ImageStore, vision: boolean): HistoryImages {
-  const names = new Map<number, string[]>();
-  for (const image of imageStore.listForConversation(conversationId)) names.set(image.messageId, [...(names.get(image.messageId) ?? []), image.name]);
-  if (!vision || names.size === 0) return { data: new Map(), names };
+  const counts = new Map<number, number>();
+  for (const image of imageStore.listForConversation(conversationId)) counts.set(image.messageId, (counts.get(image.messageId) ?? 0) + 1);
+  if (!vision || counts.size === 0) return { data: new Map(), counts };
   const recent = rows.filter((row) => row.kind === 'user').slice(-IMAGE_TURNS_IN_HISTORY).map((row) => row.id);
   const data = new Map([...imageStore.forMessages(recent)].map(([id, images]) => [id, images.map((image) => image.base64)]));
-  return { data, names };
+  return { data, counts };
 }
 
 export interface AttemptInput {

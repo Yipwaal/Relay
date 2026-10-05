@@ -19,8 +19,10 @@ function canChat(m: InstalledModel): boolean {
   return m.capabilities ? m.capabilities.includes('completion') : !isEmbeddingModel(m);
 }
 
+/** Ziet dit model beelden? Een cloudmodel telt niet: afbeeldingen verlaten deze computer nooit. */
 export function supportsVision(installed: InstalledModel[], name: string): boolean {
-  return findInstalled(installed, name)?.capabilities?.includes('vision') ?? false;
+  const model = findInstalled(installed, name);
+  return !model?.remote && (model?.capabilities?.includes('vision') ?? false);
 }
 
 function largest(models: InstalledModel[]): InstalledModel | undefined {

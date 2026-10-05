@@ -23,11 +23,12 @@ async function addDraftImages(files: File[]): Promise<void> {
       showComposerError(`"${file.name}" is te groot (max ${MAX_DRAFT_IMAGE_BYTES / (1024 * 1024)} MB).`);
       continue;
     }
+    const data = new Uint8Array(await file.arrayBuffer());
+    // Pas ná de await tellen: twee snelle plak- of sleepacties lopen anders samen over de grens.
     if (appState.draftImages.length >= MAX_DRAFT_IMAGES) {
       showComposerError(`Maximaal ${MAX_DRAFT_IMAGES} afbeeldingen per vraag.`);
       break;
     }
-    const data = new Uint8Array(await file.arrayBuffer());
     appState.draftImages.push({ name: file.name || 'afbeelding.png', data, url: URL.createObjectURL(file) });
   }
   renderImageChips();

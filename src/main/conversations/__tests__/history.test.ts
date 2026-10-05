@@ -118,24 +118,26 @@ test('toConversationMessages geeft het routerlabel en vervangen pogingen door', 
   ]);
 });
 
-test('toModelHistory: echte beelden alleen waar data is, anders "[afbeelding: …]" in de tekst', () => {
+test('toModelHistory: echte beelden alleen waar data is, anders een plaatshouder in de tekst', () => {
   const old = row({ role: 'user', kind: 'user', content: 'Wat staat hierop?' });
   const answer = row({ role: 'assistant', kind: 'assistant', content: 'Een kat.' });
   const recent = row({ role: 'user', kind: 'user', content: '' });
   const images = {
     data: new Map([[recent.id, ['aGFsbG8=']]]),
-    names: new Map([
-      [old.id, ['kat.jpg']],
-      [recent.id, ['hond.png']],
+    counts: new Map([
+      [old.id, 1],
+      [recent.id, 2],
     ]),
   };
   assert.deepEqual(toModelHistory([old, answer, recent], 'native', undefined, images), [
-    { role: 'user', content: 'Wat staat hierop?\n\n[afbeelding: kat.jpg]' },
+    { role: 'user', content: 'Wat staat hierop?\n\n[afbeelding — hier niet meegestuurd]' },
     { role: 'assistant', content: 'Een kat.' },
     { role: 'user', content: '', images: ['aGFsbG8='] },
   ]);
-  // Zonder beelddata (model ziet geen beelden): alleen de namen.
-  assert.deepEqual(toModelHistory([recent], 'native', undefined, { data: new Map(), names: images.names }), [{ role: 'user', content: '[afbeelding: hond.png]' }]);
+  // Zonder beelddata (model ziet geen beelden): alleen een plaatshouder, bewust zonder bestandsnaam.
+  assert.deepEqual(toModelHistory([recent], 'native', undefined, { data: new Map(), counts: images.counts }), [
+    { role: 'user', content: '[2 afbeeldingen — hier niet meegestuurd]' },
+  ]);
 });
 
 test('toConversationMessages zet afbeeldingen bij het juiste gebruikersbericht', () => {

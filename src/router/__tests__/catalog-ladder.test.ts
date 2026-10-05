@@ -134,3 +134,10 @@ test('escalatie: rollen die hetzelfde model delen worden overgeslagen', () => {
   assert.deepEqual(nextModelUp('gemma4:12b', roles, ALL_INSTALLED, { allowMax: true, needsVision: false }), { role: 'max', model: 'qwen3.8:27b' });
   assert.equal(nextModelUp('gemma4:12b', roles, ALL_INSTALLED, { allowMax: false, needsVision: false }), null);
 });
+
+test('supportsVision: een cloudmodel krijgt nooit afbeeldingen, ook niet met vision', async () => {
+  const { supportsVision } = await import('../catalog');
+  const installed: InstalledModel[] = [{ name: 'qwen3-vl:235b-cloud', sizeBytes: 1, capabilities: ['completion', 'vision'], remote: true }];
+  assert.equal(supportsVision(installed, 'qwen3-vl:235b-cloud'), false);
+  assert.equal(supportsVision(ALL_INSTALLED, 'gemma4:12b'), true);
+});

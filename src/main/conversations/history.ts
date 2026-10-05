@@ -30,24 +30,25 @@ function activeRows(rows: StoredMessage[], active?: TurnRef): StoredMessage[] {
 /**
  * Afbeeldingen voor de modelgeschiedenis: `data` (base64) alleen voor de
  * berichten waarvan het model de beelden echt mag zien — de recentste
- * beurten, en alleen als het model beelden ziet — en `names` voor alle
- * berichten, zodat oudere of onzichtbare afbeeldingen als "[afbeelding: …]"
- * in de tekst blijven staan.
+ * beurten, en alleen als het model beelden ziet — en `counts` voor alle
+ * berichten, zodat oudere of onzichtbare afbeeldingen als "[afbeelding]" in
+ * de tekst blijven staan. Bewust zonder bestandsnaam: die komt van buiten
+ * (een gedownload bestand) en hoort niet als gebruikerstekst in de prompt.
  */
 export interface HistoryImages {
   data: Map<number, string[]>;
-  names: Map<number, string[]>;
+  counts: Map<number, number>;
 }
 
-const NO_IMAGES: HistoryImages = { data: new Map(), names: new Map() };
+const NO_IMAGES: HistoryImages = { data: new Map(), counts: new Map() };
 
 function userMessage(row: StoredMessage, images: HistoryImages): ChatMessage {
   const data = images.data.get(row.id);
   if (data && data.length > 0) return { role: 'user', content: row.content, images: data };
-  const names = images.names.get(row.id) ?? [];
-  if (names.length === 0) return { role: 'user', content: row.content };
-  const placeholders = names.map((name) => `[afbeelding: ${name}]`).join('\n');
-  return { role: 'user', content: row.content ? `${row.content}\n\n${placeholders}` : placeholders };
+  const count = images.counts.get(row.id) ?? 0;
+  if (count === 0) return { role: 'user', content: row.content };
+  const placeholder = count === 1 ? '[afbeelding — hier niet meegestuurd]' : `[${count} afbeeldingen — hier niet meegestuurd]`;
+  return { role: 'user', content: row.content ? `${row.content}\n\n${placeholder}` : placeholder };
 }
 
 export function toModelHistory(allRows: StoredMessage[], toolMode: ToolMode, active?: TurnRef, images: HistoryImages = NO_IMAGES): ChatMessage[] {

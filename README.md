@@ -698,9 +698,13 @@ slepen (andere bestanden worden zoals voorheen documenten van het gesprek).
 
 - **Controle in main**: de renderer is niet te vertrouwen, dus main herkent
   het type aan de eerste bytes (alleen PNG en JPEG — die leest elk
-  Ollama-beeldmodel), niet aan naam of opgegeven type; max. 4 per vraag en
-  10 MB per stuk; de naam wordt een kale basename zonder stuurtekens. Zo komt
-  er niets anders in de database of bij Ollama (`src/main/images/validate.ts`).
+  Ollama-beeldmodel), niet aan naam of opgegeven type; max. 4 per vraag, 10 MB
+  per stuk en 20 MB samen. De afmetingen komen uit de header, zonder te
+  decoderen (max. 8192 px per zijde, 40 megapixel): een klein bestand dat
+  65535 × 65535 opgeeft zou Ollama's decoder anders gigabytes laten
+  reserveren. De naam wordt een kale basename zonder stuur-, bidi- of
+  zero-width-tekens en dient alleen als label in de UI
+  (`src/main/images/validate.ts`).
 - **Opslag**: `message_images` (migratie v5), in dezelfde transactie als het
   bericht; een gesprek verwijderen verwijdert ze mee. Miniaturen haalt de
   renderer per afbeelding op en toont ze als `blob:`-URL (CSP: `img-src
@@ -711,10 +715,22 @@ slepen (andere bestanden worden zoals voorheen documenten van het gesprek).
   slimmer" kiezen met een afbeelding in de beurt alleen modellen die beelden
   zien; is er geen, dan zegt Relay dat.
 - **Geschiedenis**: alleen de twee recentste vragen sturen hun beelden mee
-  (context en laadtijd), en alleen naar een model dat beelden ziet. Oudere
-  afbeeldingen, of een model zonder beeld (bv. `gpt-oss:20b` voor een
-  codevraag erna), krijgen `[afbeelding: naam]` in de tekst, zodat het model
-  weet dat er een afbeelding was.
+  (context en laadtijd), en alleen naar een lokaal model dat beelden ziet.
+  Oudere afbeeldingen, of een model zonder beeld (bv. `gpt-oss:20b` voor een
+  codevraag erna), krijgen `[afbeelding — hier niet meegestuurd]` in de
+  tekst, zodat het model weet dat er een afbeelding was. Bewust zonder
+  bestandsnaam: die komt van buiten en hoort niet als gebruikerstekst in de
+  prompt.
+- **Nooit naar de cloud**: een Ollama-cloudmodel telt nooit als beeldmodel,
+  ook als het vision heeft; een afbeelding gaat dan naar het lokale
+  beeldmodel.
+- **Prompt-injection via een afbeelding** (security-review 6d): een
+  screenshot van een webpagina of mail kan instructies bevatten die het
+  beeldmodel leest. Zolang er een afbeelding in de context staat, geldt
+  daarom dezelfde `remember`-blokkade als na `web_search`/`web_fetch`/
+  `search_documents`, en de system prompt zegt dat tekst in afbeeldingen
+  data is, geen instructie. Restrisico, net als bij webinhoud: een
+  `web_fetch` blijft mogelijk, maar staat altijd zichtbaar in de chat.
 
 ### Gevolgen voor bestaande data
 

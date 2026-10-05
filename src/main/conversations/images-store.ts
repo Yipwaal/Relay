@@ -53,7 +53,9 @@ export function createImageStore(db: DatabaseSync): ImageStore {
       const result = new Map<number, ImageForModel[]>();
       for (const messageId of messageIds) {
         const rows = forMessageStmt.all(messageId) as unknown as Array<{ name: string; data: Uint8Array }>;
-        if (rows.length > 0) result.set(messageId, rows.map((row) => ({ name: row.name, base64: Buffer.from(row.data).toString('base64') })));
+        if (rows.length > 0) {
+          result.set(messageId, rows.map((row) => ({ name: row.name, base64: Buffer.from(row.data.buffer, row.data.byteOffset, row.data.byteLength).toString('base64') })));
+        }
       }
       return result;
     },

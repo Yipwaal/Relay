@@ -94,7 +94,8 @@ async function executeCall(
 }
 
 const REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE =
-  'remember geweigerd: er is deze beurt al web_search/web_fetch/search_documents gebruikt. Vraag de gebruiker ' +
+  'remember geweigerd: er is deze beurt al web_search/web_fetch/search_documents gebruikt of er staat een ' +
+  'afbeelding in het gesprek. Vraag de gebruiker ' +
   'expliciet te bevestigen (bv. door het feit zelf te herhalen), of sla het handmatig op via het instellingenscherm.';
 
 const EXTERNAL_CONTENT_TOOLS = new Set(['web_search', 'web_fetch', 'search_documents']);
@@ -142,7 +143,10 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
   // Fase 3, uitgebreid naar search_documents in Fase 4). Dekt niet het
   // multi-beurt-scenario (content ophalen in beurt 1, remember in beurt 2):
   // agent-loop houdt bewust geen state tussen beurten bij, zie README.md.
-  let usedExternalContentThisTurn = false;
+  // Een afbeelding in de context telt ook als externe inhoud: een screenshot
+  // van een webpagina of mail kan net zo goed instructies bevatten die het
+  // beeldmodel leest (security-review 6d).
+  let usedExternalContentThisTurn = messages.some((m) => m.role === 'user' && (m.images?.length ?? 0) > 0);
 
   // Met 'remember' altijd geregistreerd (zie tools/index.ts) is er nu altijd
   // minstens één tool beschikbaar. Welk pad gekozen wordt hangt dus alleen

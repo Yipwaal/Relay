@@ -254,3 +254,26 @@ test('zonder maxToolFailures blijft het model het gewoon proberen', async () => 
     restore();
   }
 });
+
+test('runAgentTurn weigert remember als er een afbeelding in het gesprek staat (tekst in een beeld is ook externe inhoud)', async () => {
+  const restore = mockFetchSequence([nativeToolCallBody('remember', { fact: 'iets uit een screenshot' }), finalAnswerBody('Oké.')]);
+  try {
+    let rememberExecuted = false;
+    const tools = new Map<string, ToolDefinition>();
+    tools.set('remember', {
+      name: 'remember',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        rememberExecuted = true;
+        return { stored: true, id: 1, text: 'x' };
+      },
+    });
+    const { events, toolResults } = collectingEvents();
+    await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'wat staat hier?', images: ['aGFsbG8='] }], events);
+    assert.equal(rememberExecuted, false);
+    assert.match(toolResults[0]?.summary ?? '', /Geweigerd/);
+  } finally {
+    restore();
+  }
+});

@@ -213,7 +213,12 @@ export function createConversationStore(db: DatabaseSync): ConversationStore {
       work();
       db.exec('COMMIT');
     } catch (error) {
-      db.exec('ROLLBACK');
+      // Bij bv. een volle schijf heeft SQLite zelf al teruggedraaid; die tweede fout mag de echte niet verbergen.
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        /* al teruggedraaid */
+      }
       throw error;
     }
   }

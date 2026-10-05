@@ -23,6 +23,7 @@ function renderModelPicker(): void {
   // In Automatisch: welk model de router het laatst koos.
   modelPillParamsEl.textContent = c.modelMode === 'fixed' ? (findModel(c.model)?.parameterSize ?? '') : (c.routedModel ?? '');
   modelButtonEl.title = c.modelMode === 'fixed' ? `Vast model: ${c.model}` : c.routedModel ? `Automatisch — laatst gekozen: ${c.routedModel}` : 'Automatisch — Relay kiest per vraag';
+  modelButtonEl.setAttribute('aria-label', `Model voor dit gesprek: ${modelButtonEl.title}`);
   // Tijdens een antwoord in dít gesprek niet van model wisselen.
   modelButtonEl.disabled = appState.pending?.conversationId === c.id;
 }

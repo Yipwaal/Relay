@@ -133,6 +133,8 @@ export async function runAttempt(input: AttemptInput, stores: AttemptStores, sna
   }
 
   let lastAnswer = '';
+  // Bewust pas na de eerste batch mét rijen: een poging die niets oplevert
+  // (bv. gestopt vóór de eerste token) laat het vorige antwoord staan.
   let firstBatch = true;
   const result = await runAgentTurn(
     { ollamaUrl: config.ollamaUrl, model, toolMode, tools, options, signal: input.signal, maxToolFailures: input.maxToolFailures },

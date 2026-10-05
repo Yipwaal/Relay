@@ -179,13 +179,16 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
     sendConversationUpdated(sender, conversationStore, conversationId);
 
     const snapshot = await catalog.current();
-    const currentModel = conversation.modelMode === 'fixed' ? conversation.model : (conversation.routedModel ?? '');
+    // Opnieuw lezen na de await: de modelkeuze kan intussen gewijzigd zijn.
+    const current = conversationStore.get(conversationId);
+    if (!current) throw new Error('Gesprek bestaat niet (meer).');
+    const currentModel = current.modelMode === 'fixed' ? current.model : (current.routedModel ?? '');
     const decision = await routeMessage(
-      { text, images: 0, mode: conversation.modelMode, currentModel, allowMax: allowMax(deps, config) },
+      { text, images: 0, mode: current.modelMode, currentModel, allowMax: allowMax(deps, config) },
       buildRouterContext(snapshot, config),
     );
     // Stickiness onthoudt alleen gewone routerkeuzes; een escalatie is eenmalig.
-    if (conversation.modelMode === 'auto') conversationStore.setRoutedModel(conversationId, decision.model);
+    if (current.modelMode === 'auto') conversationStore.setRoutedModel(conversationId, decision.model);
 
     const ctx: TurnContext = { sender, requestId, conversationId, turn, images: 0, controller, deps, config, snapshot };
     const { lastAnswer } = await runWithEscalation(ctx, decision);

@@ -29,6 +29,8 @@ interface PendingRequest {
   conversationId: number;
   /** Assistant-bubbel die nu tokens ontvangt; null tussen twee segmenten (bv. rond een tool-aanroep). */
   segment: Extract<DisplayMessage, { kind: 'assistant' }> | null;
+  /** Het model dat de router voor de lopende poging koos (relay:chat:route); '' tot dat bekend is. */
+  model: string;
   stopping: boolean;
 }
 
@@ -42,7 +44,7 @@ interface IndexingState {
 const appState = {
   conversations: [] as ConversationView[],
   activeId: 0,
-  defaults: { model: '', options: { numCtx: 0, numPredict: -1, temperature: 0.7 } } as RelayAppDefaults,
+  defaults: { options: { numCtx: 0, numPredict: -1, temperature: 0.7 } } as RelayAppDefaults,
   /** Lokaal geïnstalleerde chatmodellen (dropdown); leeg tot de eerste keer opgehaald. */
   models: [] as RelayLocalModel[],
   /** Documenten die in het actieve gesprek doorzoekbaar zijn (eigen + globale). */
@@ -60,6 +62,16 @@ function activeConversation(): ConversationView | undefined {
 
 function conversationById(id: number): ConversationView | undefined {
   return appState.conversations.find((c) => c.id === id);
+}
+
+/** Het model dat dit gesprek nu gebruikt: het vaste model, of in Automatisch het laatst gerouteerde ('' als nog onbekend). */
+function currentModelName(c: RelayConversationSummary): string {
+  return c.modelMode === 'fixed' ? c.model : (c.routedModel ?? '');
+}
+
+/** Korte tekst voor de modelkeuze: "Automatisch" of de naam van het vaste model. */
+function modelModeLabel(c: RelayConversationSummary): string {
+  return c.modelMode === 'fixed' ? c.model : 'Automatisch';
 }
 
 function toConversationView(summary: RelayConversationSummary): ConversationView {

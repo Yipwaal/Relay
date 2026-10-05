@@ -87,7 +87,7 @@ test('runAgentTurn weigert remember nadat web_search deze beurt al gebruikt is',
     });
 
     const { events, toolResults } = collectingEvents();
-    const appended = await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'zoek en onthoud iets' }], events);
+    const { messages: appended } = await runAgentTurn(baseCtx(tools), [{ role: 'user', content: 'zoek en onthoud iets' }], events);
 
     assert.equal(rememberExecuted, false, 'remember.execute() had nooit aangeroepen mogen worden');
 
@@ -189,6 +189,67 @@ test('onAppend krijgt per iteratie één batch: assistant-aanroep + tool-resulta
       [{ role: 'assistant', tool: undefined, interrupted: undefined }, { role: 'tool', tool: 'web_search', interrupted: undefined }],
       [{ role: 'assistant', tool: undefined, interrupted: false }],
     ]);
+  } finally {
+    restore();
+  }
+});
+
+test('maxToolFailures: twee door het model verprutste aanroepen geven escalate, netwerkfouten van een tool tellen niet', async () => {
+  const restore = mockFetchSequence([
+    nativeToolCallBody('web_search', { query: 'a' }),
+    nativeToolCallBody('bestaat_niet', {}),
+    nativeToolCallBody('web_fetch', { url: 'geen-url' }),
+    finalAnswerBody('Niet bereikt.'),
+  ]);
+  try {
+    const tools = new Map<string, ToolDefinition>();
+    tools.set('web_search', {
+      name: 'web_search',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        throw new Error('Zoekdienst niet bereikbaar');
+      },
+    });
+    tools.set('web_fetch', {
+      name: 'web_fetch',
+      description: 'x',
+      parameters: {},
+      async execute() {
+        const { ToolInputError } = await import('../../tools/errors');
+        throw new ToolInputError('Ongeldige URL');
+      },
+    });
+    const { events, toolResults } = collectingEvents();
+    const result = await runAgentTurn({ ...baseCtx(tools), maxToolFailures: 2 }, [{ role: 'user', content: 'x' }], events);
+    assert.equal(result.escalate, true);
+    // Netwerkfout (telt niet) + onbekende tool + ongeldige invoer: na de derde aanroep stopt de poging.
+    assert.equal(toolResults.length, 3);
+    assert.ok(!result.messages.some((m) => m.role === 'assistant' && m.content === 'Niet bereikt.'));
+  } finally {
+    restore();
+  }
+});
+
+test('maxToolFailures: dezelfde mislukte aanroep herhalen telt ook als fout van het model', async () => {
+  const restore = mockFetchSequence([nativeToolCallBody('bestaat_niet', {}), nativeToolCallBody('bestaat_niet', {}), finalAnswerBody('Niet bereikt.')]);
+  try {
+    const { events, toolResults } = collectingEvents();
+    const result = await runAgentTurn({ ...baseCtx(new Map()), maxToolFailures: 2 }, [{ role: 'user', content: 'x' }], events);
+    assert.equal(result.escalate, true);
+    assert.equal(toolResults.length, 2);
+  } finally {
+    restore();
+  }
+});
+
+test('zonder maxToolFailures blijft het model het gewoon proberen', async () => {
+  const restore = mockFetchSequence([nativeToolCallBody('bestaat_niet', {}), nativeToolCallBody('ook_niet', {}), finalAnswerBody('Toch gelukt.')]);
+  try {
+    const { events } = collectingEvents();
+    const result = await runAgentTurn(baseCtx(new Map()), [{ role: 'user', content: 'x' }], events);
+    assert.equal(result.escalate, false);
+    assert.equal(result.messages.at(-1)?.content, 'Toch gelukt.');
   } finally {
     restore();
   }

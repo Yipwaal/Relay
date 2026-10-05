@@ -20,7 +20,7 @@ async function sendCurrentDraft(): Promise<void> {
   if (wasEmpty) renderActive();
   else appendMessageElement(c.id, userMessage);
 
-  appState.pending = { requestId: window.relay.sendMessage(c.id, text), conversationId: c.id, segment: null, stopping: false };
+  appState.pending = { requestId: window.relay.sendMessage(c.id, text), conversationId: c.id, segment: null, model: '', stopping: false };
   updateSendButton();
   renderModelPicker();
   renderSidebar();
@@ -34,7 +34,8 @@ function pendingFor(requestId: string): { pending: PendingRequest; conversation:
 }
 
 function startSegment(pending: PendingRequest, conversation: ConversationView): AssistantMessage {
-  const segment: AssistantMessage = { kind: 'assistant', text: '', model: conversation.model, streaming: true, failed: false, loadingModel: false };
+  const model = pending.model || currentModelName(conversation);
+  const segment: AssistantMessage = { kind: 'assistant', text: '', model, streaming: true, failed: false, loadingModel: false };
   pending.segment = segment;
   conversation.display.push(segment);
   appendMessageElement(conversation.id, segment);
@@ -62,6 +63,17 @@ function endRequest(): void {
   renderHeader();
   renderSidebar();
 }
+
+window.relay.onRoute((payload) => {
+  const match = pendingFor(payload.requestId);
+  if (!match?.conversation) return;
+  finishSegment(match.pending, match.conversation);
+  match.pending.model = payload.model;
+  // Stickiness volgt alleen gewone routerkeuzes; een escalatie is eenmalig (zie main).
+  if (match.conversation.modelMode === 'auto' && payload.source !== 'escalation') match.conversation.routedModel = payload.model;
+  renderModelPicker();
+  renderSidebar();
+});
 
 window.relay.onChunk((payload) => {
   const match = pendingFor(payload.requestId);
@@ -136,7 +148,7 @@ window.relay.onError((payload) => {
         updateMessageElement(m);
       }
     }
-    const errorMessage: DisplayMessage = { kind: 'assistant', text: payload.message, model: conversation.model, streaming: false, failed: true, loadingModel: false };
+    const errorMessage: DisplayMessage = { kind: 'assistant', text: payload.message, model: '', streaming: false, failed: true, loadingModel: false };
     conversation.display.push(errorMessage);
     appendMessageElement(conversation.id, errorMessage);
   }

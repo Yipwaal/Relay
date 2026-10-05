@@ -6,8 +6,9 @@ function renderActive(): void {
   if (!c) return;
   const isEmpty = c.loaded && c.display.length === 0;
   chatBodyEl.classList.toggle('is-empty', isEmpty);
+  const who = c.modelMode === 'fixed' ? `${c.model} draait` : 'Relay kiest per vraag een model dat';
   emptyIntroEl.textContent =
-    `Alles blijft op deze computer. ${c.model} draait lokaal via Ollama; Relay kan je geheugen gebruiken, ` +
+    `Alles blijft op deze computer. ${who} lokaal via Ollama; Relay kan je geheugen gebruiken, ` +
     'op het web zoeken en de documenten doorzoeken die je aan dit gesprek toevoegt.';
   renderModelPicker();
   renderMessages(c);

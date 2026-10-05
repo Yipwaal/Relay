@@ -35,9 +35,10 @@ function renderOptionsPanel(): void {
   buildSegmented(ctxOptionsEl, CTX_CHOICES, numCtx, (v) => `${v / 1024}K`, (v) => void saveOptions(c, { ...c.options, numCtx: v }));
   ctxLabelEl.textContent = tokensLabel(numCtx);
   ctxWordsEl.textContent = contextWordsLabel(numCtx);
-  const kv = findModel(c.model)?.kvBytesPerToken ?? null;
+  const model = currentModelName(c);
+  const kv = findModel(model)?.kvBytesPerToken ?? null;
   ctxMemEl.hidden = kv === null;
-  if (kv !== null) ctxMemEl.textContent = kvMemoryLabel(numCtx, kv, c.model);
+  if (kv !== null) ctxMemEl.textContent = kvMemoryLabel(numCtx, kv, model);
 
   buildSegmented(predictOptionsEl, PREDICT_CHOICES, numPredict, (v) => (v < 0 ? 'Onbeperkt' : formatInt(v)), (v) => void saveOptions(c, { ...c.options, numPredict: v }));
   predictLabelEl.textContent = tokensLabel(numPredict);

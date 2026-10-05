@@ -1,21 +1,31 @@
 import { ipcMain, type IpcMainEvent, type WebContents } from 'electron';
-import { loadConfig } from '../config';
-import { buildToolRegistry } from '../tools';
-import { resolveToolMode } from '../chat/capabilities';
-import { buildSystemPrompt, MAX_MEMORY_CHARS } from '../chat/system-prompt';
-import { runAgentTurn, type AppendedEntry } from '../chat/agent-loop';
-import { createOllamaEmbedder } from '../ollama-embed';
-import { isModelLoaded, unloadLoadedModels } from '../ollama-lifecycle';
-import { toModelHistory } from '../conversations/history';
+import { escalate, routeInternal, routeMessage } from '../../router/router';
+import type { RouteDecision } from '../../router/types';
+import { loadConfig, type RelayConfig } from '../config';
 import { generateTitle, provisionalTitle } from '../conversations/title';
-import { resolveOptions, type ConversationStore, type NewMessage } from '../conversations/store';
-import type { MemoryStore } from '../memory/store';
+import type { ConversationStore } from '../conversations/store';
 import type { DocumentStore } from '../documents/store';
-import type { AppDefaults, ChatMessage, ConversationUpdatedPayload } from '../../shared/ipc-types';
+import type { MemoryStore } from '../memory/store';
+import type { CatalogSnapshot, ModelCatalog } from '../model-catalog';
+import type { RouterDecisionStore } from '../routing/decisions-store';
+import { buildRouterContext } from '../routing/router-context';
+import type { SettingsStore } from '../routing/settings-store';
+import { noticeRow, runAttempt } from '../chat/run-attempt';
+import type { AppDefaults, ConversationUpdatedPayload } from '../../shared/ipc-types';
+import { safeSend } from './send';
 
-const LOADED_CHECK_TIMEOUT_MS = 500;
-const UNLOAD_TIMEOUT_MS = 3000;
 const MAX_MESSAGE_CHARS = 100_000;
+/** Na zoveel door het model veroorzaakte tool-fouten in één poging probeert de router een slimmer model. */
+const TOOL_FAILURES_BEFORE_ESCALATION = 2;
+
+export interface ChatDeps {
+  conversationStore: ConversationStore;
+  memoryStore: MemoryStore;
+  documentStore: DocumentStore;
+  decisionStore: RouterDecisionStore;
+  settingsStore: SettingsStore;
+  catalog: ModelCatalog;
+}
 
 interface ChatSendPayload {
   requestId: string;
@@ -23,30 +33,34 @@ interface ChatSendPayload {
   text: string;
 }
 
-export interface ChatDeps {
-  conversationStore: ConversationStore;
-  memoryStore: MemoryStore;
-  documentStore: DocumentStore;
+interface ChatRetryPayload {
+  requestId: string;
+  conversationId: number;
+}
+
+function isRequestId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 100;
+}
+
+function isConversationId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**
  * Alleen nieuwe gebruikerstekst komt uit de renderer; de geschiedenis leest
  * main zelf uit de database. Daarmee kan een gecompromitteerde renderer geen
- * nagemaakte tool-resultaten of assistant-berichten meer in het gesprek smokkelen.
+ * nagemaakte tool-resultaten of assistant-berichten in het gesprek smokkelen.
  */
 function isChatSendPayload(value: unknown): value is ChatSendPayload {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.requestId === 'string' &&
-    v.requestId.length > 0 &&
-    v.requestId.length <= 100 &&
-    typeof v.conversationId === 'number' &&
-    Number.isInteger(v.conversationId) &&
-    typeof v.text === 'string' &&
-    v.text.trim().length > 0 &&
-    v.text.length <= MAX_MESSAGE_CHARS
-  );
+  return isRequestId(v.requestId) && isConversationId(v.conversationId) && typeof v.text === 'string' && v.text.trim().length > 0 && v.text.length <= MAX_MESSAGE_CHARS;
+}
+
+function isChatRetryPayload(value: unknown): value is ChatRetryPayload {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return isRequestId(v.requestId) && isConversationId(v.conversationId);
 }
 
 /** Lopende verzoeken, zodat relay:chat:stop de juiste kan afbreken — alleen vanuit het venster dat ze startte. */
@@ -54,7 +68,7 @@ const activeRequests = new Map<string, { controller: AbortController; senderId: 
 
 /** Modellen waarmee nu een antwoord loopt — die mogen nooit ge-unload worden (dat zou die stream afbreken). */
 export function modelsInUse(): string[] {
-  return [...new Set([...activeRequests.values()].map((active) => active.model))];
+  return [...new Set([...activeRequests.values()].map((active) => active.model).filter((m) => m.length > 0))];
 }
 
 /** Voor afsluiten: breek alles af vóórdat de database sluit. */
@@ -73,11 +87,6 @@ function isConversationBusy(conversationId: number): boolean {
   return [...activeRequests.values()].some((active) => active.conversationId === conversationId);
 }
 
-function safeSend(sender: WebContents, channel: string, payload: unknown): void {
-  if (sender.isDestroyed()) return;
-  sender.send(channel, payload);
-}
-
 function sendConversationUpdated(sender: WebContents, store: ConversationStore, conversationId: number): void {
   const conversation = store.get(conversationId);
   if (!conversation) return;
@@ -85,122 +94,109 @@ function sendConversationUpdated(sender: WebContents, store: ConversationStore, 
   safeSend(sender, 'relay:conversations:updated', payload);
 }
 
-function userRow(text: string): NewMessage {
-  return { role: 'user', kind: 'user', content: text, toolCalls: null, toolName: null, display: null, model: null, status: 'complete' };
+export function allowMax(deps: Pick<ChatDeps, 'settingsStore'>, config: RelayConfig): boolean {
+  return deps.settingsStore.get('allowMax', config.router.allowMax);
 }
 
-function noticeRow(text: string): NewMessage {
-  return { role: 'assistant', kind: 'notice', content: text, toolCalls: null, toolName: null, display: null, model: null, status: 'error' };
+interface TurnContext {
+  sender: WebContents;
+  requestId: string;
+  conversationId: number;
+  turn: number;
+  /** Aantal afbeeldingen in het gebruikersbericht van deze beurt (escalatie mag dan alleen naar beeldmodellen). */
+  images: number;
+  controller: AbortController;
+  deps: ChatDeps;
+  config: RelayConfig;
+  snapshot: CatalogSnapshot;
 }
 
-function toStoredRow(entry: AppendedEntry, model: string): NewMessage | null {
-  const m: ChatMessage = entry.message;
-  if (entry.tool) {
-    return {
-      role: m.role === 'tool' ? 'tool' : 'user',
-      kind: 'tool_result',
-      content: m.content,
-      toolCalls: null,
-      toolName: m.role === 'tool' ? m.toolName : entry.tool.tool,
-      display: entry.tool,
-      model: null,
-      status: 'complete',
-    };
+/**
+ * Voert een beurt uit met het gekozen model, en escaleert zolang de agent-loop
+ * meldt dat het model zelf twee keer een tool-aanroep verprutste en er een
+ * hoger model is. Elke poging komt in het routerlog, met de laadtijd erbij.
+ */
+async function runWithEscalation(ctx: TurnContext, first: RouteDecision): Promise<{ lastAnswer: string }> {
+  const { deps, config, snapshot, controller } = ctx;
+  const emit = (channel: string, payload: Record<string, unknown>): void => safeSend(ctx.sender, channel, { requestId: ctx.requestId, ...payload });
+  let decision = first;
+  let lastAnswer = '';
+
+  for (;;) {
+    const logged = deps.decisionStore.record(ctx.conversationId, ctx.turn, decision);
+    const active = activeRequests.get(ctx.requestId);
+    if (active) active.model = decision.model;
+    emit('relay:chat:route', { model: decision.model, reason: decision.reason, source: decision.source, attempt: logged.attempt });
+
+    const next = escalate(decision.model, snapshot, { allowMax: allowMax(deps, config), images: ctx.images, reason: '2× tool mislukt' });
+    const result = await runAttempt(
+      {
+        conversationId: ctx.conversationId,
+        ref: { turn: ctx.turn, attempt: logged.attempt },
+        decision,
+        maxToolFailures: next ? TOOL_FAILURES_BEFORE_ESCALATION : undefined,
+        signal: controller.signal,
+        emit,
+        modelsInUse,
+      },
+      deps,
+      snapshot,
+      config,
+    );
+    deps.decisionStore.setLoadMs(logged.id, result.loadMs);
+    if (result.lastAnswer) lastAnswer = result.lastAnswer;
+
+    if (!result.escalate || !next || controller.signal.aborted) return { lastAnswer };
+    console.log(`[relay] router: ${decision.model} → ${next.model} na ${TOOL_FAILURES_BEFORE_ESCALATION} mislukte tool-aanroepen`);
+    decision = next;
   }
-  if (m.role !== 'assistant') return null;
-  const toolCalls = m.toolCalls && m.toolCalls.length > 0 ? m.toolCalls : null;
-  // Een lege beurt zonder tool-aanroep (bv. stop vóór de eerste token) voegt niets toe.
-  if (m.content.trim().length === 0 && !toolCalls) return null;
-  return {
-    role: 'assistant',
-    kind: 'assistant',
-    content: m.content,
-    toolCalls,
-    toolName: null,
-    display: null,
-    model,
-    status: entry.interrupted ? 'interrupted' : 'complete',
-  };
 }
 
-async function handleChatRequest(
-  sender: WebContents,
-  requestId: string,
-  conversationId: number,
-  text: string,
-  deps: ChatDeps,
-  controller: AbortController,
-): Promise<void> {
-  const { conversationStore, memoryStore, documentStore } = deps;
+function recordFailure(deps: ChatDeps, conversationId: number, turn: number, message: string): void {
+  try {
+    const { conversationStore, decisionStore } = deps;
+    if (!conversationStore.get(conversationId)) return;
+    const attempt = decisionStore.latestFor(turn)?.attempt ?? 1;
+    conversationStore.appendMessages(conversationId, { turn, attempt }, [noticeRow(message)]);
+  } catch (persistError) {
+    console.error(`[relay] foutmelding niet opgeslagen: ${persistError instanceof Error ? persistError.message : String(persistError)}`);
+  }
+}
+
+async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: ChatDeps, controller: AbortController): Promise<void> {
+  const { conversationStore, catalog } = deps;
+  const { requestId, conversationId } = payload;
+  const text = payload.text.trim();
+  let turn = 0;
   try {
     const conversation = conversationStore.get(conversationId);
     if (!conversation) throw new Error('Gesprek bestaat niet (meer).');
     const config = loadConfig();
-    const { model } = conversation;
-    const options = resolveOptions(conversation, config.options);
 
     const isFirstTurn = conversationStore.listMessages(conversationId).length === 0;
-    conversationStore.appendMessages(conversationId, [userRow(text)]);
+    turn = conversationStore.appendUserMessage(conversationId, text);
     if (isFirstTurn) conversationStore.setAutoTitle(conversationId, provisionalTitle(text));
     sendConversationUpdated(sender, conversationStore, conversationId);
 
-    const embedder = createOllamaEmbedder(config.ollamaUrl, config.embedModel);
-    const tools = buildToolRegistry({
-      ollamaApiKey: config.ollamaApiKey,
-      memoryStore,
-      documentStore,
-      embedder,
-      embedModel: config.embedModel,
-      conversationId,
-    });
-    const toolMode = await resolveToolMode(config.ollamaUrl, model, config.toolMode);
-
-    // Feiten aan het begin van de beurt lezen, niet per agent-loop-iteratie:
-    // roept het model binnen deze beurt zelf remember aan, dan verandert de
-    // system prompt van turnMessages[0] niet meer terwijl de loop bezig is —
-    // dat nieuwe feit staat pas vanaf de volgende beurt in de system prompt.
-    const facts = memoryStore.selectFactsForPrompt(MAX_MEMORY_CHARS);
-    const systemPrompt = buildSystemPrompt({
-      base: config.systemPrompt,
-      facts,
-      toolMode,
-      tools: [...tools.values()].map((t) => ({ name: t.name, description: t.description })),
-    });
-    const history = toModelHistory(conversationStore.listMessages(conversationId), toolMode);
-    const turnMessages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...history];
-
-    console.log(
-      `[relay] chat request conversation=${conversationId} model=${model} toolMode=${toolMode} tools=${tools.size} ` +
-        `facts=${facts.facts.length} messages=${turnMessages.length}`,
+    const snapshot = await catalog.current();
+    const currentModel = conversation.modelMode === 'fixed' ? conversation.model : (conversation.routedModel ?? '');
+    const decision = await routeMessage(
+      { text, images: 0, mode: conversation.modelMode, currentModel, allowMax: allowMax(deps, config) },
+      buildRouterContext(snapshot, config),
     );
+    // Stickiness onthoudt alleen gewone routerkeuzes; een escalatie is eenmalig.
+    if (conversation.modelMode === 'auto') conversationStore.setRoutedModel(conversationId, decision.model);
 
-    // Cold start: een 12B-model laden kan tientallen seconden duren. Laat de
-    // UI dat zien i.p.v. dat het lijkt alsof er niets gebeurt. Staat er nog
-    // een ánder chatmodel in het geheugen (vorig gesprek), haal dat eerst weg
-    // zodat er geen twee grote modellen tegelijk resident blijven.
-    if ((await isModelLoaded(config.ollamaUrl, model, LOADED_CHECK_TIMEOUT_MS)) === false) {
-      safeSend(sender, 'relay:chat:status', { requestId, status: 'loading-model' });
-      await unloadLoadedModels(config.ollamaUrl, UNLOAD_TIMEOUT_MS, [model, config.embedModel, ...modelsInUse()]);
-    }
-
-    let lastAnswer = '';
-    await runAgentTurn({ ollamaUrl: config.ollamaUrl, model, toolMode, tools, options, signal: controller.signal }, turnMessages, {
-      onToken: (token) => safeSend(sender, 'relay:chat:chunk', { requestId, token }),
-      onToolCall: (info) => safeSend(sender, 'relay:chat:tool-call', { requestId, ...info }),
-      onToolResult: (info) => safeSend(sender, 'relay:chat:tool-result', { requestId, ...info }),
-      onAppend: (entries) => {
-        const rows = entries.map((entry) => toStoredRow(entry, model)).filter((row): row is NewMessage => row !== null);
-        conversationStore.appendMessages(conversationId, rows);
-        for (const row of rows) if (row.kind === 'assistant' && row.content.trim()) lastAnswer = row.content;
-      },
-    });
+    const ctx: TurnContext = { sender, requestId, conversationId, turn, images: 0, controller, deps, config, snapshot };
+    const { lastAnswer } = await runWithEscalation(ctx, decision);
 
     const stopped = controller.signal.aborted;
     safeSend(sender, 'relay:chat:done', { requestId, stopped });
     sendConversationUpdated(sender, conversationStore, conversationId);
 
     if (isFirstTurn && !stopped && !conversation.titleIsCustom && lastAnswer) {
-      void generateTitle(config.ollamaUrl, model, text, lastAnswer).then((title) => {
+      const titleModel = routeInternal('titel', snapshot.roles).model;
+      void generateTitle(config.ollamaUrl, titleModel, text, lastAnswer, config.router.backgroundKeepAlive).then((title) => {
         if (title && conversationStore.get(conversationId) && conversationStore.setAutoTitle(conversationId, title)) {
           sendConversationUpdated(sender, conversationStore, conversationId);
         }
@@ -209,45 +205,79 @@ async function handleChatRequest(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Onbekende fout bij Ollama-aanroep';
     console.error(`[relay] chat request mislukt: ${message}`);
-    try {
-      if (conversationStore.get(conversationId)) conversationStore.appendMessages(conversationId, [noticeRow(message)]);
-    } catch (persistError) {
-      console.error(`[relay] foutmelding niet opgeslagen: ${persistError instanceof Error ? persistError.message : String(persistError)}`);
-    }
+    if (turn > 0) recordFailure(deps, conversationId, turn, message);
     safeSend(sender, 'relay:chat:error', { requestId, message });
-  } finally {
-    activeRequests.delete(requestId);
   }
 }
 
-export function registerChatHandler(deps: ChatDeps): void {
-  ipcMain.handle('relay:app:defaults', (): AppDefaults => {
+/**
+ * "Probeer slimmer": de laatste beurt opnieuw, met het volgende model omhoog
+ * vanaf het model dat het huidige antwoord gaf. Het oude antwoord blijft
+ * staan tot het nieuwe iets oplevert, en wordt dan gedimd (vervangen).
+ */
+async function handleRetry(sender: WebContents, payload: ChatRetryPayload, deps: ChatDeps, controller: AbortController): Promise<void> {
+  const { conversationStore, decisionStore, catalog } = deps;
+  const { requestId, conversationId } = payload;
+  try {
+    const conversation = conversationStore.get(conversationId);
+    if (!conversation) throw new Error('Gesprek bestaat niet (meer).');
+    const latest = conversationStore.latestTurn(conversationId);
+    if (!latest) throw new Error('Er is nog geen vraag om opnieuw te proberen.');
     const config = loadConfig();
-    return { model: config.model, options: config.options };
-  });
+    const snapshot = await catalog.current();
+    const previousModel =
+      decisionStore.latestFor(latest.turn)?.model ?? (conversation.modelMode === 'fixed' ? conversation.model : (conversation.routedModel ?? ''));
+    const max = allowMax(deps, config);
+    const decision = escalate(previousModel, snapshot, { allowMax: max, images: 0, reason: 'probeer slimmer' });
+    if (!decision) {
+      throw new Error(
+        max
+          ? `Er is geen slimmer model dan ${previousModel} geïnstalleerd.`
+          : `Er is geen slimmer model dan ${previousModel} — zet "Max-model toestaan" aan in Instellingen.`,
+      );
+    }
+
+    await runWithEscalation({ sender, requestId, conversationId, turn: latest.turn, images: 0, controller, deps, config, snapshot }, decision);
+    safeSend(sender, 'relay:chat:done', { requestId, stopped: controller.signal.aborted });
+    sendConversationUpdated(sender, conversationStore, conversationId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Opnieuw proberen mislukt';
+    console.error(`[relay] probeer slimmer mislukt: ${message}`);
+    safeSend(sender, 'relay:chat:error', { requestId, message });
+  }
+}
+
+function startRequest(event: IpcMainEvent, requestId: string, conversationId: number, run: (controller: AbortController) => Promise<void>): void {
+  if (activeRequests.has(requestId)) {
+    console.error('[relay] dubbel requestId genegeerd');
+    return;
+  }
+  if (isConversationBusy(conversationId)) {
+    safeSend(event.sender, 'relay:chat:error', { requestId, message: 'Er loopt al een antwoord in dit gesprek.' });
+    return;
+  }
+  const controller = new AbortController();
+  activeRequests.set(requestId, { controller, senderId: event.sender.id, conversationId, model: '' });
+  void run(controller).finally(() => activeRequests.delete(requestId));
+}
+
+export function registerChatHandler(deps: ChatDeps): void {
+  ipcMain.handle('relay:app:defaults', (): AppDefaults => ({ options: loadConfig().options }));
 
   ipcMain.on('relay:chat:send', (event: IpcMainEvent, payload: unknown) => {
     if (!isChatSendPayload(payload)) {
       console.error('[relay] ongeldig chat:send-bericht genegeerd');
       return;
     }
-    const { requestId, conversationId, text } = payload;
-    if (activeRequests.has(requestId)) {
-      console.error('[relay] dubbel requestId genegeerd');
+    startRequest(event, payload.requestId, payload.conversationId, (controller) => handleSend(event.sender, payload, deps, controller));
+  });
+
+  ipcMain.on('relay:chat:retry', (event: IpcMainEvent, payload: unknown) => {
+    if (!isChatRetryPayload(payload)) {
+      console.error('[relay] ongeldig chat:retry-bericht genegeerd');
       return;
     }
-    if (isConversationBusy(conversationId)) {
-      safeSend(event.sender, 'relay:chat:error', { requestId, message: 'Er loopt al een antwoord in dit gesprek.' });
-      return;
-    }
-    const conversation = deps.conversationStore.get(conversationId);
-    if (!conversation) {
-      safeSend(event.sender, 'relay:chat:error', { requestId, message: 'Gesprek bestaat niet (meer).' });
-      return;
-    }
-    const controller = new AbortController();
-    activeRequests.set(requestId, { controller, senderId: event.sender.id, conversationId, model: conversation.model });
-    void handleChatRequest(event.sender, requestId, conversationId, text.trim(), deps, controller);
+    startRequest(event, payload.requestId, payload.conversationId, (controller) => handleRetry(event.sender, payload, deps, controller));
   });
 
   ipcMain.on('relay:chat:stop', (event: IpcMainEvent, requestId: unknown) => {

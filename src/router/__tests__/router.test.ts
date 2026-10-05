@@ -76,6 +76,13 @@ test('stickiness: na een code-vraag blijft een eenvoudige vervolgvraag op hetzel
   assert.deepEqual([decision.model, decision.source, decision.reason], ['gpt-oss:20b', 'sticky', 'chat · aangehouden']);
 });
 
+test('stickiness: blijft de keuze hetzelfde model, dan is het gewoon de routerkeuze (geen "aangehouden")', async () => {
+  const decision = await routeMessage({ ...base, currentModel: 'gemma4:12b' }, ctxWith({ taak: 'chat', complexiteit: 'laag' }));
+  assert.deepEqual([decision.model, decision.source, decision.reason], ['gemma4:12b', 'classifier', 'chat']);
+  const slow = await routeMessage({ ...base, currentModel: 'gemma4:12b' }, ctxWith({ classification: null, ms: 3000, error: 'duurde langer dan 3000 ms' }));
+  assert.deepEqual([slow.model, slow.source, slow.reason], ['gemma4:12b', 'fallback', 'classificatie te traag']);
+});
+
 test('stickiness: omhoog wisselen mag wel', async () => {
   const decision = await routeMessage({ ...base, currentModel: 'gemma4:12b' }, ctxWith({ taak: 'code', complexiteit: 'hoog' }));
   assert.equal(decision.model, 'gpt-oss:20b');

@@ -47,7 +47,7 @@ test('stop in prompt-modus na het begin van een tool-blok laat geen protocolteks
   setTimeout(() => controller.abort(), 30);
   let shown = '';
 
-  const appended = await runAgentTurn(ctx('prompt', new Map(), controller.signal), [{ role: 'user', content: 'x' }], {
+  const { messages: appended } = await runAgentTurn(ctx('prompt', new Map(), controller.signal), [{ role: 'user', content: 'x' }], {
     onToken: (token) => {
       shown += token;
     },
@@ -74,7 +74,7 @@ test('stop tijdens een trage tool breekt de tool af en start geen nieuwe modelbe
   });
   const results: Array<{ ok: boolean; summary: string }> = [];
 
-  const appended = await runAgentTurn(ctx('native', tools, controller.signal), [{ role: 'user', content: 'x' }], {
+  const { messages: appended } = await runAgentTurn(ctx('native', tools, controller.signal), [{ role: 'user', content: 'x' }], {
     onToken: () => undefined,
     onToolCall: () => setTimeout(() => controller.abort(), 10),
     onToolResult: (info) => results.push({ ok: info.ok, summary: info.summary }),
@@ -91,7 +91,7 @@ test('een al afgebroken signaal start niets', async () => {
   const fetchMock = mockStreamingFetch([[line('x')]]);
   const controller = new AbortController();
   controller.abort();
-  const appended = await runAgentTurn(ctx('native', new Map(), controller.signal), [{ role: 'user', content: 'x' }], {
+  const { messages: appended } = await runAgentTurn(ctx('native', new Map(), controller.signal), [{ role: 'user', content: 'x' }], {
     onToken: () => undefined,
     onToolCall: () => undefined,
     onToolResult: () => undefined,

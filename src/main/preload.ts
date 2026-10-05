@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AppDefaults,
   ChatOptions,
+  ChatRoutePayload,
   ChatStatusPayload,
   ChunkPayload,
   ConversationMessage,
@@ -14,6 +15,7 @@ import type {
   LocalModel,
   MemoryFact,
   OllamaStatus,
+  RouterSettingsInfo,
   ToolCallPayload,
   ToolResultPayload,
 } from '../shared/ipc-types';
@@ -32,6 +34,12 @@ contextBridge.exposeInMainWorld('relay', {
     ipcRenderer.send('relay:chat:send', { requestId, conversationId, text });
     return requestId;
   },
+  /** "Probeer slimmer": de laatste beurt opnieuw met het volgende model omhoog. */
+  retryMessage(conversationId: number): string {
+    const requestId = crypto.randomUUID();
+    ipcRenderer.send('relay:chat:retry', { requestId, conversationId });
+    return requestId;
+  },
   stopMessage(requestId: string): void {
     ipcRenderer.send('relay:chat:stop', requestId);
   },
@@ -41,6 +49,7 @@ contextBridge.exposeInMainWorld('relay', {
   listModels(): Promise<LocalModel[]> {
     return ipcRenderer.invoke('relay:models:list');
   },
+  onRoute: (callback: (payload: ChatRoutePayload) => void) => on('relay:chat:route', callback),
   onStatus: (callback: (payload: ChatStatusPayload) => void) => on('relay:chat:status', callback),
   onChunk: (callback: (payload: ChunkPayload) => void) => on('relay:chat:chunk', callback),
   onToolCall: (callback: (payload: ToolCallPayload) => void) => on('relay:chat:tool-call', callback),
@@ -60,7 +69,8 @@ contextBridge.exposeInMainWorld('relay', {
     remove(id: number): Promise<void> {
       return ipcRenderer.invoke('relay:conversations:delete', id);
     },
-    setModel(id: number, model: string): Promise<ConversationSummary> {
+    /** null = Automatisch (de router kiest per bericht). */
+    setModel(id: number, model: string | null): Promise<ConversationSummary> {
       return ipcRenderer.invoke('relay:conversations:set-model', id, model);
     },
     setOptions(id: number, options: ChatOptions): Promise<ConversationSummary> {
@@ -70,6 +80,14 @@ contextBridge.exposeInMainWorld('relay', {
       return ipcRenderer.invoke('relay:conversations:messages', id);
     },
     onUpdated: (callback: (payload: ConversationUpdatedPayload) => void) => on('relay:conversations:updated', callback),
+  },
+  router: {
+    settings(): Promise<RouterSettingsInfo> {
+      return ipcRenderer.invoke('relay:router:settings');
+    },
+    setAllowMax(value: boolean): Promise<RouterSettingsInfo> {
+      return ipcRenderer.invoke('relay:router:set-allow-max', value);
+    },
   },
   memory: {
     list(): Promise<MemoryFact[]> {

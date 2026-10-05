@@ -9,6 +9,10 @@ function row(partial: Partial<StoredMessage> & Pick<StoredMessage, 'role' | 'kin
   return {
     id: nextId++,
     conversationId: 1,
+    turn: null,
+    attempt: 1,
+    superseded: false,
+    route: null,
     toolCalls: null,
     toolName: null,
     display: null,
@@ -78,10 +82,38 @@ test('toConversationMessages toont bubbels zonder protocoltekst, kaarten en meld
   ];
   assert.deepEqual(toConversationMessages(rows), [
     { kind: 'user', text: 'Wat is de opzegtermijn?' },
-    { kind: 'tool', display },
-    { kind: 'assistant', text: 'Eén maand.', model: 'm', interrupted: false },
-    { kind: 'notice', text: 'Ollama lijkt niet te draaien' },
-    { kind: 'assistant', text: 'Ik zoek het op.', model: 'm', interrupted: false },
-    { kind: 'assistant', text: 'Half antwoord', model: 'm', interrupted: true },
+    { kind: 'tool', display, superseded: false },
+    { kind: 'assistant', text: 'Eén maand.', model: 'm', interrupted: false, route: null, superseded: false },
+    { kind: 'notice', text: 'Ollama lijkt niet te draaien', superseded: false },
+    { kind: 'assistant', text: 'Ik zoek het op.', model: 'm', interrupted: false, route: null, superseded: false },
+    { kind: 'assistant', text: 'Half antwoord', model: 'm', interrupted: true, route: null, superseded: false },
+  ]);
+});
+
+test('toModelHistory laat vervangen pogingen weg, en tijdens een nieuwe poging ook de vorige van dezelfde beurt', () => {
+  const turn = [
+    row({ role: 'user', kind: 'user', content: 'Vraag', turn: 100 }),
+    row({ role: 'assistant', kind: 'assistant', content: 'Poging 1', turn: 100, attempt: 1 }),
+  ];
+  // Nieuwe poging 2 loopt: poging 1 is nog niet gemarkeerd, maar mag het model niet zien.
+  assert.deepEqual(toModelHistory(turn, 'native', { turn: 100, attempt: 2 }), [{ role: 'user', content: 'Vraag' }]);
+  // Zonder actieve poging (bv. de volgende beurt) telt poging 1 gewoon mee…
+  assert.equal(toModelHistory(turn, 'native').length, 2);
+  // …tenzij die als vervangen gemarkeerd is.
+  const replaced = [turn[0]!, { ...turn[1]!, superseded: true }, row({ role: 'assistant', kind: 'assistant', content: 'Poging 2', turn: 100, attempt: 2 })];
+  assert.deepEqual(toModelHistory(replaced, 'native'), [
+    { role: 'user', content: 'Vraag' },
+    { role: 'assistant', content: 'Poging 2' },
+  ]);
+});
+
+test('toConversationMessages geeft het routerlabel en vervangen pogingen door', () => {
+  const rows = [
+    row({ role: 'assistant', kind: 'assistant', content: 'Oud', model: 'gemma4:12b', route: 'chat', superseded: true }),
+    row({ role: 'assistant', kind: 'assistant', content: 'Nieuw', model: 'gpt-oss:20b', route: 'probeer slimmer' }),
+  ];
+  assert.deepEqual(toConversationMessages(rows), [
+    { kind: 'assistant', text: 'Oud', model: 'gemma4:12b', interrupted: false, route: 'chat', superseded: true },
+    { kind: 'assistant', text: 'Nieuw', model: 'gpt-oss:20b', interrupted: false, route: 'probeer slimmer', superseded: false },
   ]);
 });

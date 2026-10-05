@@ -23,6 +23,13 @@ interface OllamaChatChunk {
   message?: { role: string; content: string; tool_calls?: NativeToolCall[] };
   done: boolean;
   error?: string;
+  /** Alleen in de laatste chunk: hoe lang het laden van het model duurde, in nanoseconden. */
+  load_duration?: number;
+}
+
+export interface StreamChatResult {
+  /** Laadtijd van het model voor dit verzoek (0 als het al in het geheugen stond of onbekend is). */
+  loadMs: number;
 }
 
 /**
@@ -87,7 +94,7 @@ export interface StreamChatHandlers {
  * compleet tool-aanroep-blok gezien is) wordt dit als normale afronding
  * behandeld, niet als fout.
  */
-export async function streamChat(options: StreamChatOptions, handlers: StreamChatHandlers): Promise<void> {
+export async function streamChat(options: StreamChatOptions, handlers: StreamChatHandlers): Promise<StreamChatResult> {
   const { baseUrl, model, messages, tools, signal } = options;
   const body: Record<string, unknown> = { model, messages: toOllamaMessages(messages), stream: true };
   if (tools && tools.length > 0) {
@@ -110,7 +117,7 @@ export async function streamChat(options: StreamChatOptions, handlers: StreamCha
       signal,
     });
   } catch (error) {
-    if (isAbortError(error)) return;
+    if (isAbortError(error)) return { loadMs: 0 };
     throw error;
   }
 
@@ -121,6 +128,7 @@ export async function streamChat(options: StreamChatOptions, handlers: StreamCha
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const result: StreamChatResult = { loadMs: 0 };
 
   try {
     while (true) {
@@ -132,20 +140,22 @@ export async function streamChat(options: StreamChatOptions, handlers: StreamCha
       buffer = remainder;
 
       for (const line of lines) {
-        applyChunk(parseOllamaChunk(line), handlers);
+        applyChunk(parseOllamaChunk(line), handlers, result);
       }
     }
   } catch (error) {
-    if (isAbortError(error)) return;
+    if (isAbortError(error)) return result;
     throw error;
   }
 
   if (buffer.trim().length > 0) {
-    applyChunk(parseOllamaChunk(buffer), handlers);
+    applyChunk(parseOllamaChunk(buffer), handlers, result);
   }
+  return result;
 }
 
-function applyChunk(chunk: OllamaChatChunk, handlers: StreamChatHandlers): void {
+function applyChunk(chunk: OllamaChatChunk, handlers: StreamChatHandlers, result: StreamChatResult): void {
+  if (typeof chunk.load_duration === 'number') result.loadMs = chunk.load_duration / 1e6;
   if (chunk.error) {
     throw new Error(chunk.error);
   }

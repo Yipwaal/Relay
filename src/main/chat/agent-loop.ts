@@ -3,6 +3,7 @@ import type { ChatMessage, ChatOptions, ToolCallInfo, ToolDisplay, ToolResultInf
 import type { ToolDefinition } from '../tools';
 import { toToolSchemas } from '../tools';
 import { sanitizeExternalContent } from '../tools/sanitize';
+import { ToolInputError } from '../tools/errors';
 import { abortable, withTimeout } from '../timeout';
 import type { ToolMode } from './capabilities';
 import { buildPreviewItems, callQuery, describeCall, describeResult } from './tool-display';
@@ -25,6 +26,22 @@ export interface AgentContext {
   options: ChatOptions;
   /** Stop-knop: breekt de lopende stream of tool-aanroep af; de beurt eindigt dan netjes. */
   signal?: AbortSignal;
+  /**
+   * Na zoveel tool-aanroepen die door het model zelf mislukken (onherkenbare
+   * aanroep, onbekende tool, ongeldige argumenten) stopt de poging met
+   * escalate: true, zodat de router een slimmer model kan proberen. Weglaten
+   * als er geen hoger model is: dan gaat de loop gewoon door.
+   */
+  maxToolFailures?: number;
+}
+
+export interface AgentTurnResult {
+  /** Alle in deze poging toegevoegde berichten (zelfde volgorde als events.onAppend). */
+  messages: ChatMessage[];
+  /** true als de poging stopte omdat maxToolFailures bereikt werd. */
+  escalate: boolean;
+  /** Opgetelde load_duration van Ollama over alle iteraties, in ms. */
+  loadMs: number;
 }
 
 /** Eén bericht dat deze beurt aan de geschiedenis is toegevoegd, met wat de UI erover moet weten. */
@@ -54,10 +71,10 @@ async function executeCall(
   call: ToolCall,
   tools: Map<string, ToolDefinition>,
   signal: AbortSignal | undefined,
-): Promise<{ ok: boolean; result: unknown }> {
+): Promise<{ ok: boolean; result: unknown; modelError: boolean }> {
   const tool = tools.get(call.name);
   if (!tool) {
-    return { ok: false, result: { error: `Onbekende tool: "${call.name}"` } };
+    return { ok: false, result: { error: `Onbekende tool: "${call.name}"` }, modelError: true };
   }
 
   console.log(`[relay] tool-aanroep: ${call.name} input=${JSON.stringify(call.args)}`);
@@ -65,10 +82,10 @@ async function executeCall(
   try {
     // abortable: ook tools die het signaal (nog) niet zelf afhandelen laten de beurt direct stoppen.
     const result = await abortable(withTimeout(tool.execute(call.args, signal), TOOL_TIMEOUT_MS, `Tool "${call.name}"`), signal);
-    return { ok: true, result };
+    return { ok: true, result, modelError: false };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Tool-aanroep mislukt';
-    return { ok: false, result: { error: message } };
+    return { ok: false, result: { error: message }, modelError: error instanceof ToolInputError };
   }
 }
 
@@ -95,9 +112,12 @@ function failure(summary: string, preview: string): ToolResultInfo {
  * Geeft alle in deze beurt toegevoegde berichten terug; events.onAppend krijgt
  * ze al per iteratie.
  */
-export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<ChatMessage[]> {
+export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], events: AgentEvents): Promise<AgentTurnResult> {
   const turnMessages = [...messages];
   const appended: ChatMessage[] = [];
+  let loadMs = 0;
+  let modelFailures = 0;
+  const failureLimitReached = (): boolean => ctx.maxToolFailures !== undefined && modelFailures >= ctx.maxToolFailures;
   const append = (entries: AppendedEntry[]): void => {
     for (const entry of entries) {
       turnMessages.push(entry.message);
@@ -135,7 +155,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
     if (usePlainStreaming) {
       let assistantText = '';
 
-      await streamChat(
+      const streamed = await streamChat(
         { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, tools: toolSchemas, options: ctx.options, signal: ctx.signal },
         {
           onToken: (token) => {
@@ -149,6 +169,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           },
         },
       );
+      loadMs += streamed.loadMs;
 
       // Na een stop voeren we een eventueel al ontvangen tool-aanroep niet meer uit.
       if (ctx.signal?.aborted) pendingCall = null;
@@ -170,7 +191,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       let rawBuffer = '';
       let malformedError: string | null = null;
 
-      await streamChat(
+      const streamed = await streamChat(
         { baseUrl: ctx.ollamaUrl, model: ctx.model, messages: turnMessages, signal, options: ctx.options },
         {
           onToken: (token) => {
@@ -188,6 +209,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
           },
         },
       );
+      loadMs += streamed.loadMs;
 
       if (malformedError !== null) {
         const notice = buildToolResultMessage(
@@ -198,6 +220,8 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
         const info: ToolCallInfo = { tool: 'onbekend', query: '', label: 'Onherkenbare tool-aanroep' };
         events.onToolCall(info);
         append([{ message: notice, tool: reportTool(info, failure(`Mislukt: ${malformedError}`, malformedError)) }]);
+        modelFailures++;
+        if (failureLimitReached()) return { messages: appended, escalate: true, loadMs };
         continue;
       }
 
@@ -226,6 +250,9 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       const notice = buildToolResultMessage(ctx.toolMode, call, JSON.stringify({ error: duplicateNotice }));
       events.onToolCall(info);
       append([{ message: assistantMessage }, { message: notice, tool: reportTool(info, failure(`Overgeslagen: ${duplicateNotice}`, duplicateNotice)) }]);
+      // Hetzelfde nog eens proberen is ook een fout van het model: het zit vast.
+      modelFailures++;
+      if (failureLimitReached()) return { messages: appended, escalate: true, loadMs };
       break;
     }
     seenCalls.add(dedupeKey);
@@ -240,7 +267,7 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
 
     events.onToolCall(info);
     const startedAt = Date.now();
-    const { ok, result } = await executeCall(call, ctx.tools, ctx.signal);
+    const { ok, result, modelError } = await executeCall(call, ctx.tools, ctx.signal);
     const durationMs = Date.now() - startedAt;
     if (ok && EXTERNAL_CONTENT_TOOLS.has(call.name)) {
       usedExternalContentThisTurn = true;
@@ -255,7 +282,10 @@ export async function runAgentTurn(ctx: AgentContext, messages: ChatMessage[], e
       durationMs,
     });
     append([{ message: assistantMessage }, { message: buildToolResultMessage(ctx.toolMode, call, sanitized), tool: display }]);
+
+    if (modelError) modelFailures++;
+    if (failureLimitReached()) return { messages: appended, escalate: true, loadMs };
   }
 
-  return appended;
+  return { messages: appended, escalate: false, loadMs };
 }

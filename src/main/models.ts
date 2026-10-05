@@ -75,22 +75,17 @@ async function showModel(baseUrl: string, name: string): Promise<ShowResult> {
   }
 }
 
-/**
- * De lokaal geïnstalleerde modellen waarmee je kunt chatten (/api/tags).
- * Embedding-modellen (bv. embeddinggemma voor documenten) vallen weg: daarmee
- * kun je niet chatten. Onbekende capabilities (oude Ollama) laten we staan.
- */
-export async function listChatModels(baseUrl: string): Promise<LocalModel[]> {
+/** Alle lokaal geïnstalleerde modellen (/api/tags), aangevuld met capabilities en een KV-schatting uit /api/show. */
+export async function listInstalledModels(baseUrl: string): Promise<LocalModel[]> {
   const response = await fetchOllama(`${baseUrl}/api/tags`, {});
   if (!response.ok) throw new Error(`Kon de modellenlijst niet ophalen (${response.status}).`);
   const data = (await response.json()) as { models?: TagsModel[] };
   const tags = Array.isArray(data.models) ? data.models.filter((m) => typeof m.name === 'string') : [];
 
   const models = await Promise.all(
-    tags.map(async (m): Promise<LocalModel | null> => {
+    tags.map(async (m): Promise<LocalModel> => {
       const name = m.name as string;
       const show = await showModel(baseUrl, name);
-      if (show.capabilities && !show.capabilities.includes('completion')) return null;
       return {
         name,
         sizeBytes: typeof m.size === 'number' ? m.size : 0,
@@ -98,8 +93,21 @@ export async function listChatModels(baseUrl: string): Promise<LocalModel[]> {
         family: str(m.details?.family),
         quantization: str(m.details?.quantization_level),
         kvBytesPerToken: show.kvBytesPerToken,
+        capabilities: show.capabilities,
       };
     }),
   );
-  return models.filter((m): m is LocalModel => m !== null).sort((a, b) => a.name.localeCompare(b.name));
+  return models.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Alleen modellen waarmee je kunt chatten: embedding-modellen (bv. voor
+ * documenten) vallen weg. Onbekende capabilities (oude Ollama) laten we staan.
+ */
+export function chatModelsOnly(models: LocalModel[]): LocalModel[] {
+  return models.filter((m) => !m.capabilities || m.capabilities.includes('completion'));
+}
+
+export async function listChatModels(baseUrl: string): Promise<LocalModel[]> {
+  return chatModelsOnly(await listInstalledModels(baseUrl));
 }

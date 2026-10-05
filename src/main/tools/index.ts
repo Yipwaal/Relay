@@ -6,6 +6,7 @@ import { createOllamaSearchProvider } from './web-search';
 import { fetchWebPage } from './web-fetch';
 import { createRememberTool } from './remember';
 import { createSearchDocumentsTool } from './search-documents';
+import { ToolInputError } from './errors';
 
 export interface ToolDefinition {
   name: 'web_search' | 'web_fetch' | 'remember' | 'search_documents';
@@ -18,7 +19,7 @@ export interface ToolDefinition {
 function requireStringArg(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`Tool-argument "${key}" ontbreekt of is geen niet-lege string`);
+    throw new ToolInputError(`Tool-argument "${key}" ontbreekt of is geen niet-lege string`);
   }
   return value;
 }

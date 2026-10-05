@@ -1,6 +1,7 @@
 import type { ToolDefinition } from './index';
 import type { MemoryStore } from '../memory/store';
 import { sanitizeExternalContent } from './sanitize';
+import { ToolInputError } from './errors';
 
 /**
  * Enige tool die de gesprekscontext zelf mag schrijven. Bewust geen
@@ -25,7 +26,7 @@ export function createRememberTool(store: MemoryStore): ToolDefinition {
     async execute(args) {
       const fact = args.fact;
       if (typeof fact !== 'string' || fact.trim().length === 0) {
-        throw new Error('Tool-argument "fact" ontbreekt of is geen niet-lege string');
+        throw new ToolInputError('Tool-argument "fact" ontbreekt of is geen niet-lege string');
       }
       const stored = store.addFact(sanitizeExternalContent(fact), 'model');
       return { stored: true, id: stored.id, text: stored.text };

@@ -1,6 +1,7 @@
 import type { ToolDefinition } from './index';
 import type { DocumentStore } from '../documents/store';
 import type { Embedder } from '../ollama-embed';
+import { ToolInputError } from './errors';
 
 const TOP_K = 4;
 // Ruim onder sanitize.ts's MAX_TOOL_RESULT_CHARS (8000): laat hele passages
@@ -46,7 +47,7 @@ export function createSearchDocumentsTool(
     async execute(args) {
       const query = args.query;
       if (typeof query !== 'string' || query.trim().length === 0) {
-        throw new Error('Tool-argument "query" ontbreekt of is geen niet-lege string');
+        throw new ToolInputError('Tool-argument "query" ontbreekt of is geen niet-lege string');
       }
 
       const [queryEmbedding] = await embedder.embed([query]);

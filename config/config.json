@@ -1,12 +1,22 @@
 {
-  "model": "gemma4:12b",
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent. Antwoord kort en duidelijk.",
   "toolMode": "auto",
+  "models": {
+    "fast": "gemma4:12b",
+    "reasoning": "gpt-oss:20b",
+    "max": "qwen3.8:27b",
+    "background": "qwen3.5:9b",
+    "embedding": "qwen3-embedding:0.6b"
+  },
+  "router": {
+    "allowMax": false,
+    "classifyTimeoutMs": 3000,
+    "backgroundKeepAlive": "30m"
+  },
   "options": {
     "num_ctx": 8192,
     "num_predict": 1024,
     "temperature": 0.7
-  },
-  "embedModel": "embeddinggemma"
+  }
 }

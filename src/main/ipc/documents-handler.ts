@@ -1,13 +1,16 @@
 import { ipcMain, dialog, BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { routeEmbedding } from '../../router/router';
 import { loadConfig } from '../config';
+import type { ModelCatalog } from '../model-catalog';
 import { createOllamaEmbedder } from '../ollama-embed';
 import { ingestDocument } from '../documents/ingest';
 import { isSupportedExtension, SUPPORTED_EXTENSIONS, type SupportedExtension } from '../documents/extract';
 import type { DocumentStore, DocumentRecord } from '../documents/store';
 import type { ConversationStore } from '../conversations/store';
 import type { DocumentInfo, DocumentProgressPayload } from '../../shared/ipc-types';
+import { safeSend } from './send';
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 // .pdf/.docx zijn gecomprimeerde formaten: hun uitgepakte tekst kan veel groter zijn
@@ -26,11 +29,6 @@ function maxFileSizeFor(fileName: string): number {
 function assertSize(fileName: string, size: number): void {
   const maxSize = maxFileSizeFor(fileName);
   if (size > maxSize) throw new Error(`Bestand is te groot (max ${Math.round(maxSize / (1024 * 1024))} MB).`);
-}
-
-function safeSend(sender: WebContents, channel: string, payload: unknown): void {
-  if (sender.isDestroyed()) return;
-  sender.send(channel, payload);
 }
 
 function toDocumentInfo(record: DocumentRecord, currentEmbedModel: string): DocumentInfo {
@@ -55,8 +53,21 @@ function isValidId(value: unknown): value is number {
  * de naam wordt tot een basename teruggebracht en alleen gebruikt als titel
  * en om het type te bepalen.
  */
-export function registerDocumentsHandlers(documentStore: DocumentStore, conversationStore: ConversationStore): void {
+export function registerDocumentsHandlers(documentStore: DocumentStore, conversationStore: ConversationStore, catalog: ModelCatalog): void {
   let ingestInProgress = false;
+
+  /**
+   * Het embedding-model dat de router nu gebruikt (eventueel een vervanger
+   * als het geconfigureerde model ontbreekt), zodat "verouderd" klopt met
+   * wat search_documents echt gebruikt. Zonder Ollama: het geconfigureerde.
+   */
+  async function currentEmbedModel(): Promise<string> {
+    try {
+      return (await catalog.current()).roles.embedding.model ?? loadConfig().models.embedding;
+    } catch {
+      return loadConfig().models.embedding;
+    }
+  }
 
   function requireConversation(id: unknown): number {
     if (!isValidId(id) || !conversationStore.get(id)) throw new Error('Gesprek bestaat niet (meer).');
@@ -68,21 +79,23 @@ export function registerDocumentsHandlers(documentStore: DocumentStore, conversa
     ingestInProgress = true;
     try {
       const config = loadConfig();
-      const embedder = createOllamaEmbedder(config.ollamaUrl, config.embedModel);
-      console.log(`[relay] document toevoegen aan gesprek ${conversationId}: ${title} (${buffer.length} bytes)`);
-      const record = await ingestDocument(documentStore, embedder, config.embedModel, { conversationId, filePath: title, buffer, title }, (progress) => {
+      const embedModel = routeEmbedding((await catalog.current()).roles).model;
+      const embedder = createOllamaEmbedder(config.ollamaUrl, embedModel);
+      console.log(`[relay] document toevoegen aan gesprek ${conversationId}: ${title} (${buffer.length} bytes, ${embedModel})`);
+      const record = await ingestDocument(documentStore, embedder, embedModel, { conversationId, filePath: title, buffer, title }, (progress) => {
         const payload: DocumentProgressPayload = { conversationId, title, done: progress.done, total: progress.total };
         safeSend(sender, 'relay:documents:progress', payload);
       });
-      return toDocumentInfo(record, config.embedModel);
+      return toDocumentInfo(record, embedModel);
     } finally {
       ingestInProgress = false;
     }
   }
 
-  ipcMain.handle('relay:documents:list', (_event, conversationId: unknown) => {
-    const config = loadConfig();
-    return documentStore.listDocuments(requireConversation(conversationId)).map((doc) => toDocumentInfo(doc, config.embedModel));
+  ipcMain.handle('relay:documents:list', async (_event, conversationIdArg: unknown): Promise<DocumentInfo[]> => {
+    const conversationId = requireConversation(conversationIdArg);
+    const embedModel = await currentEmbedModel();
+    return documentStore.listDocuments(conversationId).map((doc) => toDocumentInfo(doc, embedModel));
   });
 
   ipcMain.handle('relay:documents:add', async (event: IpcMainInvokeEvent, conversationIdArg: unknown): Promise<DocumentInfo | null> => {

@@ -1,4 +1,4 @@
-import { supportsVision } from './catalog';
+import { sameModel, supportsVision } from './catalog';
 import type { ClassifyResult } from './classifier';
 import { chatRoleOf, keepCurrentModel, levelOf, nextModelUp } from './ladder';
 import { mapClassification } from './mapping';
@@ -78,10 +78,12 @@ export async function routeMessage(input: RouteMessageInput, ctx: RouterContext)
   const reason = result.classification ? result.classification.taak : fallbackReason(result.error);
   const base = { classification: result.classification ?? undefined, classifyMs: result.ms };
 
-  if (keepCurrentModel(input.currentModel, role, roles, input.allowMax)) {
+  const model = chatModel(roles, role);
+  // "Aangehouden" alleen als het huidige model echt een ander (hoger) model is dan de nieuwe keuze.
+  if (!sameModel(input.currentModel, model) && keepCurrentModel(input.currentModel, role, roles, input.allowMax)) {
     return { ...base, model: input.currentModel, role: chatRoleOf(input.currentModel, roles), source: 'sticky', reason: `${reason} · aangehouden` };
   }
-  return { ...base, model: chatModel(roles, role), role, source: result.classification ? 'classifier' : 'fallback', reason };
+  return { ...base, model, role, source: result.classification ? 'classifier' : 'fallback', reason };
 }
 
 /** Werk van Relay zelf (titels, en later geheugen samenvatten / zoekvraag herschrijven). */

@@ -1,3 +1,5 @@
+import { ToolInputError } from './errors';
+
 const WEB_FETCH_URL = 'https://ollama.com/api/web_fetch';
 
 export interface FetchedPage {
@@ -11,10 +13,10 @@ function assertFetchableUrl(url: string): void {
   try {
     parsed = new URL(url);
   } catch {
-    throw new Error(`Ongeldige URL: "${url}"`);
+    throw new ToolInputError(`Ongeldige URL: "${url}"`);
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Alleen http/https-URL's kunnen opgehaald worden, niet "${parsed.protocol}"`);
+    throw new ToolInputError(`Alleen http/https-URL's kunnen opgehaald worden, niet "${parsed.protocol}"`);
   }
 }
 

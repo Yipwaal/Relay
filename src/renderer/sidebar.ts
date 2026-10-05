@@ -9,7 +9,7 @@ const deleteCancelButton = document.getElementById('delete-cancel-button') as HT
 
 function conversationMeta(c: ConversationView, now: number): string {
   const fresh = c.updatedAt === c.createdAt && now - c.createdAt < 60_000;
-  const parts = [c.model, fresh ? 'nu' : sidebarTimeLabel(c.updatedAt, now)];
+  const parts = [currentModelName(c) || modelModeLabel(c), fresh ? 'nu' : sidebarTimeLabel(c.updatedAt, now)];
   if (c.documentCount > 0) parts.push(countLabel(c.documentCount, 'document', 'documenten'));
   return parts.join(' · ');
 }

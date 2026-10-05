@@ -1,6 +1,7 @@
 import type {
   AppDefaults,
   ChatOptions,
+  ChatRoutePayload,
   ChatStatusPayload,
   ChunkPayload,
   ConversationMessage,
@@ -13,6 +14,7 @@ import type {
   LocalModel,
   MemoryFact,
   OllamaStatus,
+  RouterSettingsInfo,
   ToolCallPayload,
   ToolPreviewItem,
   ToolResultPayload,
@@ -27,17 +29,25 @@ declare global {
   type RelayConversationMessage = ConversationMessage;
   type RelayLocalModel = LocalModel;
   type RelayChatOptions = ChatOptions;
+  type RelayRouterSettings = RouterSettingsInfo;
+  type RelayRoutePayload = ChatRoutePayload;
 
   interface RelayConversationsAPI {
     list(): Promise<RelayConversationSummary[]>;
-    /** Neemt het model over van fromConversationId (als opgegeven); instellingen komen uit config.json. */
+    /** Staat op Automatisch, tenzij fromConversationId een vast model heeft (dat wordt overgenomen); instellingen komen uit config.json. */
     create(fromConversationId?: number): Promise<RelayConversationSummary>;
     rename(id: number, title: string): Promise<RelayConversationSummary>;
     remove(id: number): Promise<void>;
-    setModel(id: number, model: string): Promise<RelayConversationSummary>;
+    /** null = Automatisch (de router kiest per bericht). */
+    setModel(id: number, model: string | null): Promise<RelayConversationSummary>;
     setOptions(id: number, options: RelayChatOptions): Promise<RelayConversationSummary>;
     messages(id: number): Promise<RelayConversationMessage[]>;
     onUpdated(callback: (payload: ConversationUpdatedPayload) => void): void;
+  }
+
+  interface RelayRouterAPI {
+    settings(): Promise<RelayRouterSettings>;
+    setAllowMax(value: boolean): Promise<RelayRouterSettings>;
   }
 
   interface RelayMemoryAPI {
@@ -60,9 +70,11 @@ declare global {
   interface RelayAPI {
     defaults(): Promise<RelayAppDefaults>;
     sendMessage(conversationId: number, text: string): string;
+    retryMessage(conversationId: number): string;
     stopMessage(requestId: string): void;
     ollamaStatus(): Promise<OllamaStatus>;
     listModels(): Promise<RelayLocalModel[]>;
+    onRoute(callback: (payload: RelayRoutePayload) => void): void;
     onStatus(callback: (payload: ChatStatusPayload) => void): void;
     onChunk(callback: (payload: ChunkPayload) => void): void;
     onToolCall(callback: (payload: ToolCallPayload) => void): void;
@@ -70,6 +82,7 @@ declare global {
     onDone(callback: (payload: DonePayload) => void): void;
     onError(callback: (payload: ErrorPayload) => void): void;
     conversations: RelayConversationsAPI;
+    router: RelayRouterAPI;
     memory: RelayMemoryAPI;
     documents: RelayDocumentsAPI;
   }

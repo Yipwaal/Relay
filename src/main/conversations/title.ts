@@ -37,7 +37,7 @@ export function cleanGeneratedTitle(raw: string): string | null {
  * eerste beurt toch al geladen is). De titel is alleen weergavetekst — hij
  * wordt nooit als instructie gebruikt en gaat via textContent de UI in.
  */
-export async function generateTitle(baseUrl: string, model: string, userText: string, answer: string): Promise<string | null> {
+export async function generateTitle(baseUrl: string, model: string, userText: string, answer: string, keepAlive?: string): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
   try {
@@ -48,6 +48,7 @@ export async function generateTitle(baseUrl: string, model: string, userText: st
       body: JSON.stringify({
         model,
         stream: false,
+        ...(keepAlive ? { keep_alive: keepAlive } : {}),
         options: { num_predict: 24, temperature: 0.2 },
         messages: [
           {

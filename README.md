@@ -1,7 +1,8 @@
 # Relay
 
-Lokale AI-assistent: een Electron-app die chat met het lokale Ollama-model
-`gemma4:12b`. Zie `CLAUDE.md` voor het volledige projectplan en de fases.
+Lokale AI-assistent: een Electron-app die chat met lokale Ollama-modellen
+(standaard `gemma4:12b`; sinds Fase 6 kiest een router per bericht het
+passende model). Zie `CLAUDE.md` voor het volledige projectplan en de fases.
 
 Naam en logo staan vast: **Relay**, icoon in `assets/icon.svg` (gerenderd als
 `assets/icon.png` voor het app-icoon). Het schakelaar-symbool verwijst naar wat
@@ -14,14 +15,22 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
 - [x] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓, 5d modelkeuze + instellingen per gesprek ✓)
+- [ ] Fase 6 — Automatische modelrouter (in delen: 6a router-kern + tests ✓, 6b inbouw in main: log, escalatie, stickiness ✓, 6c router-UI, 6d afbeeldingen)
 
 ## Vereisten
 
 - Node.js 22+
 - [Ollama](https://ollama.com) lokaal draaiend op `http://localhost:11434`
-- Het model gepulled: `ollama pull gemma4:12b`
-- Voor Fase 4 (documenten doorzoeken): een embedding-model gepulld, bv.
-  `ollama pull embeddinggemma` (zie config.json's `embedModel`)
+- De modellen uit `config.json` gepulld (zie [Modelrouter](#modelrouter-fase-6)):
+  ```bash
+  ollama pull gemma4:12b            # fast / vision
+  ollama pull gpt-oss:20b           # reasoning
+  ollama pull qwen3.5:9b            # background (classificeren, titels)
+  ollama pull qwen3-embedding:0.6b  # embedding (documenten)
+  ollama pull qwen3.8:27b           # max — optioneel, alleen als je het toestaat
+  ```
+  Ontbreekt er een, dan valt die rol terug op het grootste geschikte model dat
+  wél geïnstalleerd is; met alleen `gemma4:12b` werkt Relay dus ook.
 
 ## Installeren en starten
 
@@ -34,23 +43,29 @@ npm start
 
 ## Configuratie
 
-De system prompt, het model en de Ollama-URL staan in `config/config.json`
+De system prompt, de modellen en de Ollama-URL staan in `config/config.json`
 (geen hardcoded waarden in de broncode):
 
 ```json
 {
-  "model": "gemma4:12b",
   "ollamaUrl": "http://localhost:11434",
   "systemPrompt": "Je bent Relay, een behulpzame lokale AI-assistent.",
   "toolMode": "auto",
-  "options": { "num_ctx": 8192, "num_predict": 1024, "temperature": 0.7 },
-  "embedModel": "embeddinggemma"
+  "models": {
+    "fast": "gemma4:12b",
+    "reasoning": "gpt-oss:20b",
+    "max": "qwen3.8:27b",
+    "background": "qwen3.5:9b",
+    "embedding": "qwen3-embedding:0.6b"
+  },
+  "router": { "allowMax": false, "classifyTimeoutMs": 3000, "backgroundKeepAlive": "30m" },
+  "options": { "num_ctx": 8192, "num_predict": 1024, "temperature": 0.7 }
 }
 ```
 
-`model` en `options` zijn de **standaard voor nieuwe gesprekken**; elk
-gesprek bewaart daarna zijn eigen model en instellingen (te wijzigen via de
-modelknop rechtsboven en ⚙ Instellingen). `options` gaat 1-op-1 mee naar
+`models` en `router` horen bij de [modelrouter](#modelrouter-fase-6).
+`options` is de **standaard voor nieuwe gesprekken**; elk gesprek bewaart
+daarna zijn eigen instellingen (⚙ Instellingen). `options` gaat 1-op-1 mee naar
 Ollama's `/api/chat`: `num_ctx` is het context window (memory-feiten en
 tool-resultaten kunnen de kleine Ollama-default snel overschrijden),
 `num_predict` de max. antwoordlengte in tokens (`-1` = onbeperkt) en
@@ -68,7 +83,7 @@ prompt is direct van kracht bij het volgende bericht — geen herstart nodig.
 - `"native"` / `"prompt"`: forceer één van beide, bijvoorbeeld om te testen.
 
 Optioneel: kopieer `.env.example` naar `.env` om `OLLAMA_URL`, `RELAY_MODEL`
-of `OLLAMA_API_KEY` te overschrijven/in te stellen. `.env` staat in
+(het fast-model), `RELAY_EMBED_MODEL` of `OLLAMA_API_KEY` te overschrijven/in te stellen. `.env` staat in
 `.gitignore` en wordt nooit gecommit; secrets horen nergens anders.
 
 ## Projectstructuur
@@ -77,6 +92,7 @@ of `OLLAMA_API_KEY` te overschrijven/in te stellen. `.env` staat in
 src/
   main/
     main.ts          Electron-lifecycle + venster aanmaken + composition root
+    model-catalog.ts  Geïnstalleerde modellen (/api/tags) → welk model elke routerrol krijgt
     db.ts             Opent de SQLite-database (node:sqlite), PRAGMA user_version-migraties
     config.ts         Leest config/config.json + .env-overrides
     ollama-client.ts   Streaming NDJSON-client voor Ollama's /api/chat
@@ -90,14 +106,21 @@ src/
       memory-handler.ts   invoke/handle-CRUD voor het geheugen-instellingenscherm
       documents-handler.ts Documenten per gesprek: dialoog (paperclip) of gesleepte bytes
       conversations-handler.ts Gesprekken: lijst, nieuw, hernoemen, verwijderen, berichten
-      ollama-handler.ts    Status van de lokale Ollama voor de sidebar
+      ollama-handler.ts    Status van de lokale Ollama voor de sidebar + lijst chatmodellen
+      router-handler.ts    Routerinstellingen (max toestaan) + rollenoverzicht
+      send.ts              safeSend: event naar de renderer, tenzij het venster dicht is
+    routing/
+      router-context.ts  Koppelt de pure router aan Ollama (classificatie via het background-model)
+      decisions-store.ts  Log van elke routerkeuze (router_decisions)
+      settings-store.ts    Instellingen uit het instellingenscherm (app_settings)
     conversations/
       store.ts         Gesprekken + berichten (één rij per model-bericht + kaartgegevens)
       history.ts       Rijen → modelgeschiedenis (per tool-modus) en → wat de UI toont
-      title.ts         Voorlopige titel + korte samenvatting door hetzelfde lokale model
+      title.ts         Voorlopige titel + korte samenvatting door het background-model
     models.ts        Lokale chatmodellen (/api/tags + /api/show) + KV-cache-schatting
     chat/
-      agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts)
+      run-attempt.ts   Eén poging van een beurt met het gekozen model (geschiedenis, opslaan, unload)
+      agent-loop.ts    Multi-turn tool-calling-loop (guards, dedupe, timeouts, escalatiesignaal)
       tool-protocol.ts Native + prompt-tool-call parsing (pure functies)
       tool-display.ts  Labels + per-fragment previews voor de tool-kaarten in de UI
       capabilities.ts  Detecteert of het model native tools ondersteunt
@@ -109,6 +132,7 @@ src/
       remember.ts         Tool waarmee het model zelf een feit opslaat
       search-documents.ts  Tool die geïndexeerde documenten doorzoekt
       sanitize.ts        Strip protocol-markers uit externe content + size cap
+      errors.ts          ToolInputError: ongeldige invoer van het model (telt voor escalatie)
     memory/
       store.ts           CRUD + validatie + budget-selectie voor de system prompt
     documents/
@@ -117,6 +141,14 @@ src/
       vector.ts            Float32<->BLOB, normalize, dot, topK (pure functies)
       store.ts              DocumentStore: CRUD + brute-force cosine similarity search
       ingest.ts              Pipeline: extract -> chunk -> embed -> store
+  router/      Pure modelrouter, zonder Electron of netwerk (volledig unit-getest)
+    types.ts       Rollen, ladder fast → reasoning → max, classificatie, beslissing
+    catalog.ts     Rollen tegen geïnstalleerde modellen houden, terugvallen op het grootste
+    rules.ts       Vaste regels: afbeelding, interne taken, embeddings
+    classifier.ts  Classificatie met Ollama's JSON-schema-output + timeout
+    mapping.ts     {taak, complexiteit} → rol
+    ladder.ts      Niveaus, stickiness, volgende model omhoog
+    router.ts      routeMessage / routeInternal / routeEmbedding / escalate
   renderer/    UI (HTML/CSS + import-vrije TS-scripts), praat alleen via de preload-bridge
     index.html     Skelet: sidebar, header, berichten, invoer, dialogen
     styles.css     Tokens 1-op-1 uit het design (Relay_dc.html) + componentstijlen
@@ -133,7 +165,7 @@ src/
     settings.ts    Instellingendialoog (geheugen)
     app.ts         Wiring: IPC-events, sneltoetsen, opstarten
   shared/      IPC-typedefinities die de preload-grens passeren
-config/        config.json — system prompt / standaardmodel / URL / toolMode / standaard-options / embedModel
+config/        config.json — system prompt / URL / toolMode / modellen per rol / router / standaard-options
 assets/        icon.svg / icon.png
 .claude/agents/  Subagents voor Claude Code tijdens het bouwen
 ```
@@ -489,7 +521,11 @@ uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
   design), de instellingen komen uit `config.json`.
 - **Eén groot model tegelijk in het geheugen**: bij wisselen, en bij een vraag
   in een gesprek met een ander model, worden de andere geladen chatmodellen
-  direct ge-unload (`keep_alive: 0`); het embedding-model mag blijven.
+  direct ge-unload (`keep_alive: 0`); het background- en embedding-model en
+  modellen met een lopend antwoord mogen blijven.
+- **Sinds Fase 6** staat bovenaan de lijst "Automatisch" (standaard): dan
+  kiest de router per bericht. Een vast model kiezen kan nog steeds; een
+  nieuw gesprek neemt een vast model over, anders start het op Automatisch.
 - **Context window, max. antwoordlengte, temperature** staan per gesprek in
   de database (migratie v4; gesprekken van vóór v4 vallen terug op
   `config.json`) en gaan als `options` mee naar `/api/chat`. Het
@@ -502,3 +538,118 @@ uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
   vraag duurt dan wat langer. Dat is verwacht gedrag; het instellingenscherm
   zegt het er meteen bij.
 
+## Modelrouter (Fase 6)
+
+Relay kiest per bericht automatisch het passende lokale model. De pure
+logica staat in `src/router/` (geen Electron, geen netwerk, volledig
+unit-getest); `src/main/` levert alleen de geïnstalleerde modellen en de
+Ollama-aanroep voor de classificatie aan.
+
+### Rollen
+
+| Rol | Standaard | Waarvoor |
+|---|---|---|
+| `fast` | `gemma4:12b` | Gewone chat, en alles met een afbeelding (vision) |
+| `reasoning` | `gpt-oss:20b` | Redeneren, code, onderzoek (middel/hoog) |
+| `max` | `qwen3.8:27b` | Alleen als "Max-model toestaan" aan staat én de vraag zwaar is |
+| `background` | `qwen3.5:9b` | Werk van Relay zelf: berichten classificeren, gesprekstitels |
+| `embedding` | `qwen3-embedding:0.6b` | Documenten indexeren en doorzoeken |
+
+**Ontbrekende modellen**: bij opstarten (en daarna hooguit eens per minuut,
+of als de modellijst geopend wordt) vraagt Relay `/api/tags` en `/api/show`
+op. Staat een model niet in Ollama, dan krijgt die rol het **grootste
+geschikte model dat wél geïnstalleerd is** (voor `fast` eerst een model dat
+beelden ziet; een embedding-model is nooit een chatmodel en andersom). Elke
+terugval komt één keer in het log: `[relay] router: max: qwen3.8:27b niet
+geïnstalleerd → gpt-oss:20b`.
+
+### Hoe een bericht gerouteerd wordt
+
+1. **Vast model gekozen** → dat model (tenzij er een afbeelding bij zit die
+   het niet kan zien; dan het beeldmodel).
+2. **Regels**: afbeelding → `fast`; interne taken (titel, en later geheugen
+   samenvatten / zoekvraag herschrijven) → `background`; embeddings →
+   `embedding`.
+3. **Anders classificeert het background-model** het bericht met Ollama's
+   gestructureerde output (`format` = een JSON-schema met enums, `temperature
+   0`, max. 64 tokens, eerste 2000 tekens van het bericht) naar
+   `{taak: chat|redeneren|code|onderzoek, complexiteit: laag|middel|hoog}`.
+   Duurt dat langer dan `classifyTimeoutMs` (3 s) of mislukt het → `fast`.
+4. **Mapping**:
+
+   | taak \ complexiteit | laag | middel | hoog |
+   |---|---|---|---|
+   | chat | fast | fast | reasoning |
+   | redeneren / code / onderzoek | fast | reasoning | reasoning (max als toegestaan) |
+
+   `chat/laag → fast` en `redeneren|code|onderzoek` met middel/hoog →
+   `reasoning` komen uit de opdracht. De overige vakken zijn ingevuld:
+   lichte vragen blijven op het snelle model, een zware gewone vraag mag naar
+   `reasoning`, en `max` alleen voor zware niet-chatvragen.
+5. **Stickiness**: binnen een gesprek wisselt de router alleen naar een
+   model dat **minstens één niveau hoger** is (ladder fast → reasoning →
+   max). Na een codevraag op `gpt-oss:20b` blijft "dank je" daar dus staan
+   (label: `chat · aangehouden`): geen herlaadtijd voor een kleine vraag.
+   Het laatst gerouteerde model staat per gesprek in `routed_model`. Op `max`
+   blijft een gesprek alleen hangen zolang max is toegestaan.
+
+### Escalatie
+
+- **Tool-aanroep faalt twee keer**: roept het model in één poging twee keer
+  een tool verkeerd aan (onbekende tool, ongeldige argumenten, een
+  onherkenbaar tool-blok, of exact dezelfde aanroep nog eens), dan stopt de
+  poging en doet het volgende model omhoog het verzoek opnieuw. Alleen fouten
+  die het model zelf maakt tellen; een zoekdienst die niet bereikbaar is niet.
+- **"Probeer slimmer"** (`relay:chat:retry`): de laatste beurt opnieuw met
+  het volgende model omhoog vanaf het model dat het huidige antwoord gaf.
+  Is er niets hogers (of alleen `max` terwijl dat niet mag), dan zegt Relay
+  dat.
+- De oude poging blijft bewaard maar wordt **vervangen** (`superseded`):
+  niet meer naar het model, wel (straks gedimd) zichtbaar. Dat markeren
+  gebeurt pas in dezelfde transactie als de eerste opgeslagen stap van de
+  nieuwe poging, zodat een nieuwe poging die meteen faalt het oude antwoord
+  niet wegpoetst. Een escalatie verandert `routed_model` niet: het is
+  eenmalig, het gesprek blijft niet op een groter model hangen.
+
+### Laadtijd beperken
+
+Het background-model wordt aangeroepen met `keep_alive` =
+`backgroundKeepAlive` (30 minuten) en wordt, net als het embedding-model,
+niet ge-unload als er van chatmodel gewisseld wordt. Classificeren kost
+daardoor na de eerste keer meestal een paar honderd milliseconden.
+
+### Routerlog in SQLite
+
+Elke keuze — ook elke escalatie-poging — komt in `router_decisions`
+(migratie v5): bericht-id (het gebruikersbericht van de beurt), poging,
+model, rol, bron (`rule`, `classifier`, `fallback`, `sticky`, `fixed`,
+`escalation`), reden, de classificatie, hoe lang die duurde, en de laadtijd
+van het model (Ollama's `load_duration`). Het log blijft staan als een
+gesprek verwijderd wordt. Bekijken:
+
+```bash
+sqlite3 ~/.config/relay/relay.db "
+  SELECT datetime(created_at/1000, 'unixepoch', 'localtime') AS tijd, message_id, attempt,
+         model, source, reason, task, complexity, classify_ms, load_ms
+  FROM router_decisions ORDER BY id DESC LIMIT 30;"
+```
+
+Het pad verschilt per systeem (macOS: `~/Library/Application Support/relay/`,
+Windows: `%APPDATA%\relay\`) en staat bij het opstarten in het log:
+`[relay] database: …`.
+Hoe vaak escaleert de router, en vanaf welk model?
+
+```sql
+SELECT d1.model AS van, d2.model AS naar, d2.reason, COUNT(*) AS aantal
+FROM router_decisions d1 JOIN router_decisions d2 ON d2.message_id = d1.message_id AND d2.attempt = d1.attempt + 1
+GROUP BY 1, 2, 3 ORDER BY aantal DESC;
+```
+
+### Gevolgen voor bestaande data
+
+- Gesprekken van vóór Fase 6 staan na de migratie op **Automatisch**; hun
+  oude model blijft bewaard in `model` en is weer te kiezen als vast model.
+- Het embedding-model is nu `qwen3-embedding:0.6b`. Documenten die met het
+  vorige model (`embeddinggemma`) zijn geïndexeerd staan in het
+  instellingenscherm als "verouderd embedding-model" tot je ze opnieuw
+  toevoegt — of zet `models.embedding` terug op het oude model.

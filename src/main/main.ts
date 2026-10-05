@@ -5,12 +5,16 @@ import { registerMemoryHandlers } from './ipc/memory-handler';
 import { registerDocumentsHandlers } from './ipc/documents-handler';
 import { registerOllamaHandlers } from './ipc/ollama-handler';
 import { registerConversationsHandlers } from './ipc/conversations-handler';
+import { registerRouterHandlers } from './ipc/router-handler';
 import { openRelayDb } from './db';
 import { loadConfig } from './config';
 import { createBeforeQuitHandler } from './quit';
 import { createMemoryStore } from './memory/store';
 import { createDocumentStore } from './documents/store';
 import { createConversationStore } from './conversations/store';
+import { createModelCatalog } from './model-catalog';
+import { createRouterDecisionStore } from './routing/decisions-store';
+import { createSettingsStore } from './routing/settings-store';
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -47,12 +51,22 @@ app.whenReady().then(() => {
   const memoryStore = createMemoryStore(db);
   const documentStore = createDocumentStore(db);
   const conversationStore = createConversationStore(db);
+  const decisionStore = createRouterDecisionStore(db);
+  const settingsStore = createSettingsStore(db);
+  const catalog = createModelCatalog(() => loadConfig());
 
-  registerChatHandler({ conversationStore, memoryStore, documentStore });
-  registerConversationsHandlers(conversationStore);
+  // Bij opstarten kijken welke modellen er zijn (/api/tags) en ontbrekende
+  // rollen laten terugvallen; draait Ollama nog niet, dan gebeurt dat bij het eerste bericht.
+  catalog.refresh().catch((error: unknown) => {
+    console.log(`[relay] router: modellen nog niet opgehaald (${error instanceof Error ? error.message : String(error)})`);
+  });
+
+  registerChatHandler({ conversationStore, memoryStore, documentStore, decisionStore, settingsStore, catalog });
+  registerConversationsHandlers(conversationStore, catalog);
   registerMemoryHandlers(memoryStore);
-  registerDocumentsHandlers(documentStore, conversationStore);
-  registerOllamaHandlers();
+  registerDocumentsHandlers(documentStore, conversationStore, catalog);
+  registerOllamaHandlers(catalog);
+  registerRouterHandlers(settingsStore, catalog);
   createWindow();
 
   app.on('activate', () => {

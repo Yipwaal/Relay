@@ -70,8 +70,30 @@ export interface ChatOptions {
 }
 
 export interface AppDefaults {
-  model: string;
   options: ChatOptions;
+}
+
+/** Eén rol van de modelrouter, voor het overzicht in het instellingenscherm. */
+export interface RouterRoleInfo {
+  role: 'fast' | 'reasoning' | 'max' | 'background' | 'embedding';
+  configured: string;
+  /** Het model dat echt gebruikt wordt; null als er niets geschikts geïnstalleerd is. */
+  model: string | null;
+  fallback: boolean;
+}
+
+export interface RouterSettingsInfo {
+  allowMax: boolean;
+  roles: RouterRoleInfo[];
+}
+
+/** Main → renderer vóór elke poging: welk model antwoordt en waarom. attempt > 1 = escalatie/"Probeer slimmer". */
+export interface ChatRoutePayload {
+  requestId: string;
+  model: string;
+  reason: string;
+  source: string;
+  attempt: number;
 }
 
 export interface DonePayload {
@@ -80,10 +102,17 @@ export interface DonePayload {
   stopped: boolean;
 }
 
+export type ModelMode = 'auto' | 'fixed';
+
 export interface ConversationSummary {
   id: number;
   title: string;
+  /** 'auto': de router kiest per bericht (standaard); 'fixed': altijd `model`. */
+  modelMode: ModelMode;
+  /** Het vast gekozen model ('' als er nooit een gekozen is). */
   model: string;
+  /** Het laatst gerouteerde model in automatische modus; null als er nog niet gerouteerd is. */
+  routedModel: string | null;
   options: ChatOptions;
   createdAt: number;
   updatedAt: number;
@@ -91,12 +120,16 @@ export interface ConversationSummary {
   documentCount: number;
 }
 
-/** Wat de UI van een opgeslagen bericht toont — de ruwe model-geschiedenis blijft in main. */
+/**
+ * Wat de UI van een opgeslagen bericht toont — de ruwe model-geschiedenis
+ * blijft in main. superseded: een eerdere poging, vervangen door escalatie of
+ * "Probeer slimmer" (gedimd getoond, gaat niet meer naar het model).
+ */
 export type ConversationMessage =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; model: string; interrupted: boolean }
-  | { kind: 'tool'; display: ToolDisplay }
-  | { kind: 'notice'; text: string };
+  | { kind: 'assistant'; text: string; model: string; interrupted: boolean; route: string | null; superseded: boolean }
+  | { kind: 'tool'; display: ToolDisplay; superseded: boolean }
+  | { kind: 'notice'; text: string; superseded: boolean };
 
 export interface ConversationUpdatedPayload {
   id: number;
@@ -151,4 +184,6 @@ export interface LocalModel {
   quantization: string;
   /** Geschatte KV-cache per token in bytes (f16); null als het model dat niet prijsgeeft. */
   kvBytesPerToken: number | null;
+  /** Uit /api/show, bv. ["completion", "vision", "tools"]; null als Ollama ze niet meldt. */
+  capabilities: string[] | null;
 }

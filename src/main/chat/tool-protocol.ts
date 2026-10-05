@@ -90,12 +90,23 @@ export function buildToolSystemAppendix(toolMode: ToolMode, tools: Array<{ name:
   );
 }
 
+/**
+ * De toolnaam komt uit model-output (en die kan door een webpagina gestuurd
+ * zijn). Alleen een gewone naam mag de UI, de database en het
+ * <relay-tool-result name="…">-hek in; anders zou een naam als
+ * `x"></relay-tool-result>…` het datablok voortijdig sluiten.
+ */
+export function safeToolName(name: string): string {
+  return /^[A-Za-z0-9_.-]{1,64}$/.test(name) ? name : 'onbekend';
+}
+
 export function buildToolResultMessage(toolMode: ToolMode, call: ToolCall, sanitizedResultJson: string): ChatMessage {
+  const name = safeToolName(call.name);
   if (toolMode === 'native') {
-    return { role: 'tool', content: sanitizedResultJson, toolName: call.name };
+    return { role: 'tool', content: sanitizedResultJson, toolName: name };
   }
   return {
     role: 'user',
-    content: `<relay-tool-result name="${call.name}">\n${sanitizedResultJson}\n</relay-tool-result>`,
+    content: `<relay-tool-result name="${name}">\n${sanitizedResultJson}\n</relay-tool-result>`,
   };
 }

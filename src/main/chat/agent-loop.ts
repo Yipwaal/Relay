@@ -10,6 +10,7 @@ import { buildPreviewItems, callQuery, describeCall, describeResult } from './to
 import {
   buildToolResultMessage,
   normalizeNativeToolCalls,
+  safeToolName,
   stripPartialToolCall,
   tryExtractPromptToolCall,
   type ToolCall,
@@ -17,6 +18,7 @@ import {
 
 const MAX_ITERATIONS = 5;
 const TOOL_TIMEOUT_MS = 15_000;
+const MAX_LOGGED_INPUT_CHARS = 200;
 
 export interface AgentContext {
   ollamaUrl: string;
@@ -74,10 +76,12 @@ async function executeCall(
 ): Promise<{ ok: boolean; result: unknown; modelError: boolean }> {
   const tool = tools.get(call.name);
   if (!tool) {
-    return { ok: false, result: { error: `Onbekende tool: "${call.name}"` }, modelError: true };
+    return { ok: false, result: { error: `Onbekende tool: "${safeToolName(call.name)}"` }, modelError: true };
   }
 
-  console.log(`[relay] tool-aanroep: ${call.name} input=${JSON.stringify(call.args)}`);
+  // Tool + input loggen (CLAUDE.md), maar begrensd: de argumenten komen van het model.
+  const input = JSON.stringify(call.args);
+  console.log(`[relay] tool-aanroep: ${call.name} input=${input.length > MAX_LOGGED_INPUT_CHARS ? `${input.slice(0, MAX_LOGGED_INPUT_CHARS)}…` : input}`);
 
   try {
     // abortable: ook tools die het signaal (nog) niet zelf afhandelen laten de beurt direct stoppen.
@@ -96,7 +100,8 @@ const REMEMBER_AFTER_EXTERNAL_CONTENT_MESSAGE =
 const EXTERNAL_CONTENT_TOOLS = new Set(['web_search', 'web_fetch', 'search_documents']);
 
 function callInfo(call: ToolCall): ToolCallInfo {
-  return { tool: call.name, query: callQuery(call), label: describeCall(call) };
+  const safe = { ...call, name: safeToolName(call.name) };
+  return { tool: safe.name, query: callQuery(safe), label: describeCall(safe) };
 }
 
 function failure(summary: string, preview: string): ToolResultInfo {

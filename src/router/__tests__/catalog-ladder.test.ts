@@ -25,10 +25,44 @@ test('resolveRoles valt per rol terug op het grootste geschikte model', () => {
   // fast/vision: liefst een model dat beelden ziet, ook als er grotere zijn.
   assert.deepEqual([roles.fast.model, roles.fast.fallback], ['gemma3:4b', true]);
   assert.equal(roles.reasoning.model, 'qwen2.5:14b');
-  assert.equal(roles.max.model, 'qwen2.5:14b');
-  assert.equal(roles.background.model, 'qwen2.5:14b');
+  // Een vervangend max-model moet groter zijn dan reasoning: dat is er niet.
+  assert.deepEqual([roles.max.model, roles.max.fallback], [null, false]);
+  // background neemt het (al geladen) fast-model, niet het grootste: classificeren moet snel blijven.
+  assert.equal(roles.background.model, 'gemma3:4b');
   // Embedding-modellen tellen nooit als chatmodel, en andersom.
   assert.equal(roles.embedding.model, 'embeddinggemma');
+});
+
+test('resolveRoles: een ontbrekend reasoning-model neemt nooit het max-model over', () => {
+  const installed = ALL_INSTALLED.filter((m) => m.name !== 'gpt-oss:20b');
+  const roles = resolveRoles(CONFIGURED, installed);
+  assert.equal(roles.max.model, 'qwen3.8:27b');
+  assert.equal(roles.reasoning.model, 'gemma4:12b');
+  assert.equal(roles.reasoning.fallback, true);
+});
+
+test('resolveRoles: een vervangend max-model moet groter zijn dan reasoning en geen ander rolmodel', () => {
+  const installed: InstalledModel[] = [
+    ...ALL_INSTALLED.filter((m) => m.name !== 'qwen3.8:27b'),
+    { name: 'llama3.3:70b', sizeBytes: 43e9, capabilities: ['completion', 'tools'] },
+  ];
+  assert.equal(resolveRoles(CONFIGURED, installed).max.model, 'llama3.3:70b');
+  assert.equal(resolveRoles(CONFIGURED, ALL_INSTALLED.filter((m) => m.name !== 'qwen3.8:27b')).max.model, null);
+});
+
+test('resolveRoles: cloudmodellen zijn nooit een automatische vervanger', () => {
+  const installed: InstalledModel[] = [
+    { name: 'gemma4:12b', sizeBytes: 7.1e9, capabilities: ['completion', 'vision'] },
+    { name: 'gpt-oss:120b-cloud', sizeBytes: 400, capabilities: ['completion'], remote: true },
+    { name: 'deepseek-v3.1:671b-cloud', sizeBytes: 900, capabilities: ['completion'], remote: true },
+  ];
+  const roles = resolveRoles(CONFIGURED, installed);
+  assert.ok(Object.values(roles).every((r) => r.model === null || r.model === 'gemma4:12b'));
+});
+
+test('resolveRoles: met alleen het max-model geïnstalleerd doet dat model alles', () => {
+  const roles = resolveRoles(CONFIGURED, ALL_INSTALLED.filter((m) => m.name === 'qwen3.8:27b'));
+  assert.deepEqual([roles.fast.model, roles.reasoning.model, roles.max.model], ['qwen3.8:27b', 'qwen3.8:27b', 'qwen3.8:27b']);
 });
 
 test('resolveRoles: zonder geschikt model blijft de rol leeg', () => {
@@ -88,9 +122,15 @@ test('escalatie: met een afbeelding alleen naar modellen die beelden zien', () =
   assert.equal(nextModelUp('gemma4:12b', roles, ALL_INSTALLED, { allowMax: true, needsVision: true }), null);
 });
 
-test('escalatie: rollen die door een fallback hetzelfde model delen worden overgeslagen', () => {
+test('escalatie: zonder max-model is reasoning de top', () => {
   const installed = ALL_INSTALLED.filter((m) => m.name !== 'qwen3.8:27b');
   const roles = resolveRoles(CONFIGURED, installed);
-  assert.equal(roles.max.model, 'gpt-oss:20b');
+  assert.equal(roles.max.model, null);
   assert.equal(nextModelUp('gpt-oss:20b', roles, installed, { allowMax: true, needsVision: false }), null);
+});
+
+test('escalatie: rollen die hetzelfde model delen worden overgeslagen', () => {
+  const roles = resolveRoles({ ...CONFIGURED, reasoning: 'gemma4:12b' }, ALL_INSTALLED);
+  assert.deepEqual(nextModelUp('gemma4:12b', roles, ALL_INSTALLED, { allowMax: true, needsVision: false }), { role: 'max', model: 'qwen3.8:27b' });
+  assert.equal(nextModelUp('gemma4:12b', roles, ALL_INSTALLED, { allowMax: false, needsVision: false }), null);
 });

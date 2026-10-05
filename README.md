@@ -558,10 +558,24 @@ Ollama-aanroep voor de classificatie aan.
 **Ontbrekende modellen**: bij opstarten (en daarna hooguit eens per minuut,
 of als de modellijst geopend wordt) vraagt Relay `/api/tags` en `/api/show`
 op. Staat een model niet in Ollama, dan krijgt die rol het **grootste
-geschikte model dat wél geïnstalleerd is** (voor `fast` eerst een model dat
-beelden ziet; een embedding-model is nooit een chatmodel en andersom). Elke
-terugval komt één keer in het log: `[relay] router: max: qwen3.8:27b niet
-geïnstalleerd → gpt-oss:20b`.
+geschikte model dat wél geïnstalleerd is**, met een paar grenzen
+(security-review 6b):
+
+- `fast` en `reasoning` nemen nooit het geïnstalleerde max-model over (tenzij
+  er niets anders is) — anders zou een ontbrekend `gpt-oss:20b` het max-model
+  bereikbaar maken zonder "Max-model toestaan". `fast` kiest eerst een model
+  dat beelden ziet.
+- Een vervangend `max`-model moet groter zijn dan het reasoning-model en mag
+  niet al een andere rol hebben; anders blijft `max` leeg en is `reasoning`
+  de top.
+- `background` valt terug op het fast-model (staat toch al geladen): het
+  grootste model als classificeerder zou elke keer de 3 s overschrijden.
+- Een embedding-model is nooit een chatmodel en andersom, en Ollama-cloud-
+  modellen (`*-cloud`, draaien niet lokaal) zijn nooit een automatische
+  vervanger; in de modellijst staan ze als "cloud — niet lokaal".
+
+Elke terugval komt één keer in het log, bv. `[relay] router: reasoning:
+gpt-oss:20b niet geïnstalleerd → gemma4:12b`.
 
 ### Hoe een bericht gerouteerd wordt
 
@@ -600,6 +614,10 @@ geïnstalleerd → gpt-oss:20b`.
   onherkenbaar tool-blok, of exact dezelfde aanroep nog eens), dan stopt de
   poging en doet het volgende model omhoog het verzoek opnieuw. Alleen fouten
   die het model zelf maakt tellen; een zoekdienst die niet bereikbaar is niet.
+  Alleen in Automatisch: een vast gekozen model blijft vast. Externe inhoud
+  (een webpagina) kan een zwak model in theorie tot zulke fouten verleiden;
+  het effect blijft beperkt tot een groter lokaal model (de ladder gaat alleen
+  omhoog, max alleen met toestemming).
 - **"Probeer slimmer"** (`relay:chat:retry`): de laatste beurt opnieuw met
   het volgende model omhoog vanaf het model dat het huidige antwoord gaf.
   Is er niets hogers (of alleen `max` terwijl dat niet mag), dan zegt Relay

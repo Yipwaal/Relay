@@ -36,6 +36,19 @@ test('auto: chat/laag → fast', async () => {
   assert.equal(decision.reason, 'chat');
 });
 
+test('ontbrekend reasoning-model: een zware vraag komt zonder toestemming nooit bij het max-model', async () => {
+  const installed = ALL_INSTALLED.filter((m) => m.name !== 'gpt-oss:20b');
+  const ctx = { ...ctxWith({ taak: 'code', complexiteit: 'hoog' }), installed, roles: resolveRoles(CONFIGURED, installed) };
+  assert.notEqual((await routeMessage(base, ctx)).model, 'qwen3.8:27b');
+  assert.equal((await routeMessage({ ...base, allowMax: true }, ctx)).model, 'qwen3.8:27b');
+});
+
+test('geen max-model geïnstalleerd: max toegestaan valt terug op reasoning', async () => {
+  const installed = ALL_INSTALLED.filter((m) => m.name !== 'qwen3.8:27b');
+  const ctx = { ...ctxWith({ taak: 'onderzoek', complexiteit: 'hoog' }), installed, roles: resolveRoles(CONFIGURED, installed) };
+  assert.equal((await routeMessage({ ...base, allowMax: true }, ctx)).model, 'gpt-oss:20b');
+});
+
 test('auto: max alleen als de gebruiker het toestaat', async () => {
   const hard = { taak: 'redeneren', complexiteit: 'hoog' } as const;
   assert.equal((await routeMessage(base, ctxWith(hard))).model, 'gpt-oss:20b');

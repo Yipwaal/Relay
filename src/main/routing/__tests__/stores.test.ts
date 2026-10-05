@@ -67,3 +67,11 @@ test('settings: ontbrekende rij geeft de standaard, daarna de opgeslagen waarde'
   db.prepare("UPDATE app_settings SET value = '\"ja\"' WHERE key = 'allowMax'").run();
   assert.equal(settings.get('allowMax', false), false);
 });
+
+test('attempt telt ook opgeslagen pogingen mee als het log ze niet (meer) heeft', () => {
+  const { decisions, conversations, conversationId, turn, db } = setup();
+  const answer = { role: 'assistant' as const, kind: 'assistant' as const, content: 'x', toolCalls: null, toolName: null, display: null, model: 'm', status: 'complete' as const, route: 'chat' };
+  conversations.appendMessages(conversationId, { turn, attempt: 2 }, [answer]);
+  db.prepare('DELETE FROM router_decisions').run();
+  assert.equal(decisions.record(conversationId, turn, classified).attempt, 3);
+});

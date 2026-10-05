@@ -10,7 +10,10 @@ function findModel(name: string): RelayLocalModel | undefined {
 }
 
 function modelDescription(m: RelayLocalModel): string {
-  return [m.family, m.parameterSize, m.quantization].filter((part) => part.length > 0).join(' · ');
+  const parts = [m.family, m.parameterSize, m.quantization].filter((part) => part.length > 0);
+  // Een cloudmodel draait niet lokaal: dat moet je zien vóórdat je het kiest.
+  if (m.remote) parts.unshift('cloud — niet lokaal');
+  return parts.join(' · ');
 }
 
 function renderModelPicker(): void {

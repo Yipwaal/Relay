@@ -1,6 +1,4 @@
-import type { InstalledModel, ResolvedRoles, Role, RoleModels } from './types';
-
-const ROLES: readonly Role[] = ['fast', 'reasoning', 'max', 'background', 'embedding'];
+import type { InstalledModel, ResolvedRole, ResolvedRoles, Role, RoleModels } from './types';
 
 /** Ollama behandelt "naam" en "naam:latest" als hetzelfde model. */
 export function sameModel(a: string, b: string): boolean {
@@ -29,26 +27,46 @@ function largest(models: InstalledModel[]): InstalledModel | undefined {
   return [...models].sort((a, b) => b.sizeBytes - a.sizeBytes)[0];
 }
 
-/**
- * Vervanger voor een ontbrekend model: het grootste geïnstalleerde model dat
- * de rol aankan. Voor fast/vision eerst een model met beeldondersteuning,
- * zodat de afbeeldingsregel blijft werken.
- */
-function fallbackFor(role: Role, installed: InstalledModel[]): InstalledModel | undefined {
-  if (role === 'embedding') return largest(installed.filter(isEmbeddingModel));
-  const chat = installed.filter(canChat);
-  if (role === 'fast') return largest(chat.filter((m) => m.capabilities?.includes('vision'))) ?? largest(chat);
-  return largest(chat);
+function sizeOf(installed: InstalledModel[], name: string | null): number {
+  return name ? (findInstalled(installed, name)?.sizeBytes ?? 0) : 0;
 }
 
-/** Koppelt elke rol aan een geïnstalleerd model (zie /api/tags bij opstarten). */
+function resolved(role: Role, configured: string, model: InstalledModel | undefined, fallback: boolean): ResolvedRole {
+  return { role, configured, model: model?.name ?? null, fallback: fallback && model !== undefined };
+}
+
+/**
+ * Koppelt elke rol aan een geïnstalleerd model (zie /api/tags bij opstarten).
+ * Staat het geconfigureerde model er niet, dan krijgt de rol het grootste
+ * geschikte model, met drie grenzen zodat een vervanger nooit om
+ * "Max-model toestaan" heen gaat of het classificeren traag maakt:
+ * - fast en reasoning nemen nooit het geïnstalleerde max-model over (tenzij
+ *   er niets anders is); fast kiest eerst een model dat beelden ziet;
+ * - een vervangend max-model moet groter zijn dan reasoning en mag geen
+ *   model van fast/reasoning zijn — anders blijft max leeg;
+ * - background valt terug op het fast-model (dat staat toch al geladen).
+ * Cloudmodellen (draaien niet lokaal) zijn nooit een automatische vervanger.
+ */
 export function resolveRoles(configured: RoleModels, installed: InstalledModel[]): ResolvedRoles {
-  const entries = ROLES.map((role) => {
-    const wanted = configured[role];
-    const exact = findInstalled(installed, wanted);
-    if (exact) return [role, { role, configured: wanted, model: exact.name, fallback: false }] as const;
-    const replacement = fallbackFor(role, installed);
-    return [role, { role, configured: wanted, model: replacement?.name ?? null, fallback: replacement !== undefined }] as const;
-  });
-  return Object.fromEntries(entries) as ResolvedRoles;
+  const exact = (role: Role): InstalledModel | undefined => findInstalled(installed, configured[role]);
+  const local = installed.filter((m) => !m.remote);
+  const chat = local.filter(canChat);
+  const exactMax = exact('max');
+  const belowMax = exactMax ? chat.filter((m) => !sameModel(m.name, exactMax.name)) : chat;
+  const pick = (candidates: InstalledModel[]): InstalledModel | undefined => largest(candidates) ?? (exactMax && canChat(exactMax) ? exactMax : undefined);
+
+  const visionBelowMax = belowMax.filter((m) => m.capabilities?.includes('vision'));
+  const fastModel = exact('fast') ?? pick(visionBelowMax.length > 0 ? visionBelowMax : belowMax);
+  const reasoningModel = exact('reasoning') ?? pick(belowMax);
+  const lower = [fastModel?.name, reasoningModel?.name].filter((n): n is string => Boolean(n));
+  const reasoningSize = sizeOf(installed, reasoningModel?.name ?? null);
+  const maxModel = exactMax ?? largest(chat.filter((m) => m.sizeBytes > reasoningSize && !lower.some((n) => sameModel(n, m.name))));
+
+  return {
+    fast: resolved('fast', configured.fast, fastModel, !exact('fast')),
+    reasoning: resolved('reasoning', configured.reasoning, reasoningModel, !exact('reasoning')),
+    max: resolved('max', configured.max, maxModel, !exactMax),
+    background: resolved('background', configured.background, exact('background') ?? fastModel, !exact('background')),
+    embedding: resolved('embedding', configured.embedding, exact('embedding') ?? largest(local.filter(isEmbeddingModel)), !exact('embedding')),
+  };
 }

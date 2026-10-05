@@ -38,7 +38,7 @@ export function createModelCatalog(config: () => { ollamaUrl: string; models: Ro
   async function load(): Promise<CatalogSnapshot> {
     const { ollamaUrl, models: configured } = config();
     const models = await listInstalledModels(ollamaUrl);
-    const installed = models.map((m) => ({ name: m.name, sizeBytes: m.sizeBytes, capabilities: m.capabilities }));
+    const installed = models.map((m) => ({ name: m.name, sizeBytes: m.sizeBytes, capabilities: m.capabilities, remote: m.remote }));
     const next = { installed, models, roles: resolveRoles(configured, installed) };
     // Alleen loggen als het verandert: de dropdown ververst de catalogus bij elke opening.
     const fallbacks = describeFallbacks(next.roles);

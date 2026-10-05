@@ -25,8 +25,9 @@ export interface RouterContext {
 
 export class NoModelError extends Error {}
 
+/** Het model van een rol; is die rol leeg (bv. geen max-model), dan de rol eronder. */
 function chatModel(roles: ResolvedRoles, role: ChatRole): string {
-  const model = roles[role].model ?? roles.fast.model;
+  const model = role === 'max' ? (roles.max.model ?? roles.reasoning.model ?? roles.fast.model) : (roles[role].model ?? roles.fast.model);
   if (!model) throw new NoModelError('Er staat geen chatmodel in Ollama. Haal er een op met `ollama pull`.');
   return model;
 }

@@ -20,8 +20,8 @@ export interface RouterDecisionRecord {
 export interface RouterDecisionStore {
   /**
    * Logt één routerkeuze voor een beurt. attempt = vorige poging van die beurt
-   * + 1 — geteld in dít log, niet in messages, want een poging die meteen
-   * faalt laat geen berichten achter.
+   * + 1 — vooral geteld in dít log, want een poging die meteen faalt laat
+   * geen berichten achter.
    */
   record(conversationId: number, messageId: number, decision: RouteDecision): { id: number; attempt: number };
   /** Laadtijd (Ollama's load_duration) achteraf invullen. */
@@ -66,7 +66,14 @@ function toRecord(row: DecisionRow): RouterDecisionRecord {
 }
 
 export function createRouterDecisionStore(db: DatabaseSync): RouterDecisionStore {
-  const nextAttemptStmt = db.prepare('SELECT COALESCE(MAX(attempt), 0) + 1 AS next FROM router_decisions WHERE message_id = ?');
+  // Ook naar messages kijken: wordt het log ooit opgeschoond, dan mag een
+  // nieuwe poging nooit het nummer van een opgeslagen poging hergebruiken.
+  const nextAttemptStmt = db.prepare(`
+    SELECT COALESCE(MAX(attempt), 0) + 1 AS next FROM (
+      SELECT MAX(attempt) AS attempt FROM router_decisions WHERE message_id = ?
+      UNION ALL
+      SELECT MAX(attempt) FROM messages WHERE turn = ? AND kind != 'user'
+    )`);
   const insertStmt = db.prepare(
     `INSERT INTO router_decisions (conversation_id, message_id, attempt, model, role, source, reason, task, complexity, classify_ms, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -78,7 +85,7 @@ export function createRouterDecisionStore(db: DatabaseSync): RouterDecisionStore
 
   return {
     record(conversationId, messageId, decision) {
-      const { next } = nextAttemptStmt.get(messageId) as unknown as { next: number };
+      const { next } = nextAttemptStmt.get(messageId, messageId) as unknown as { next: number };
       const result = insertStmt.run(
         conversationId,
         messageId,

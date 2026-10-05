@@ -2,10 +2,14 @@ import { fetchOllama } from './ollama-errors';
 import type { LocalModel } from '../shared/ipc-types';
 
 const SHOW_TIMEOUT_MS = 3000;
+const TAGS_TIMEOUT_MS = 5000;
 
 interface TagsModel {
   name?: unknown;
   size?: unknown;
+  /** Alleen bij Ollama-cloudmodellen (draaien niet lokaal). */
+  remote_host?: unknown;
+  remote_model?: unknown;
   details?: { family?: unknown; parameter_size?: unknown; quantization_level?: unknown };
 }
 
@@ -77,9 +81,16 @@ async function showModel(baseUrl: string, name: string): Promise<ShowResult> {
 
 /** Alle lokaal geïnstalleerde modellen (/api/tags), aangevuld met capabilities en een KV-schatting uit /api/show. */
 export async function listInstalledModels(baseUrl: string): Promise<LocalModel[]> {
-  const response = await fetchOllama(`${baseUrl}/api/tags`, {});
-  if (!response.ok) throw new Error(`Kon de modellenlijst niet ophalen (${response.status}).`);
-  const data = (await response.json()) as { models?: TagsModel[] };
+  let data: { models?: TagsModel[] };
+  try {
+    // Begrensd: elke beurt wacht hierop (modelcatalogus), en een hangende Ollama zou het gesprek anders bezet houden.
+    const response = await fetchOllama(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(TAGS_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`Kon de modellenlijst niet ophalen (${response.status}).`);
+    data = (await response.json()) as { models?: TagsModel[] };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') throw new Error(`Ollama reageert niet (geen modellenlijst binnen ${TAGS_TIMEOUT_MS / 1000} s).`);
+    throw error;
+  }
   const tags = Array.isArray(data.models) ? data.models.filter((m) => typeof m.name === 'string') : [];
 
   const models = await Promise.all(
@@ -94,6 +105,7 @@ export async function listInstalledModels(baseUrl: string): Promise<LocalModel[]
         quantization: str(m.details?.quantization_level),
         kvBytesPerToken: show.kvBytesPerToken,
         capabilities: show.capabilities,
+        remote: typeof m.remote_host === 'string' || typeof m.remote_model === 'string',
       };
     }),
   );

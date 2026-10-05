@@ -3,6 +3,7 @@ import type { ToolModeSetting } from '../config';
 export type ToolMode = 'native' | 'prompt';
 
 const capabilityCache = new Map<string, boolean>();
+const PROBE_TIMEOUT_MS = 5000;
 
 /**
  * Vraagt Ollama of dit model tool-calling ondersteunt via /api/show's
@@ -21,6 +22,8 @@ async function probeNativeToolSupport(baseUrl: string, model: string): Promise<b
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model }),
+      // Een Ollama die wel verbindt maar niet antwoordt mag de beurt niet eindeloos ophouden.
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -33,8 +36,8 @@ async function probeNativeToolSupport(baseUrl: string, model: string): Promise<b
     return supported;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // Niet cachen: na een tijdelijke storing mag de volgende beurt het opnieuw vragen.
     console.error(`[relay] kon tool-capability niet detecteren voor model "${model}": ${message} — val terug op prompt-modus`);
-    capabilityCache.set(model, false);
     return false;
   }
 }

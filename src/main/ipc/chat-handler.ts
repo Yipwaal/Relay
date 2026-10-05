@@ -105,6 +105,8 @@ interface TurnContext {
   turn: number;
   /** Aantal afbeeldingen in het gebruikersbericht van deze beurt (escalatie mag dan alleen naar beeldmodellen). */
   images: number;
+  /** Alleen in Automatisch: na 2× tool mislukt zelf een slimmer model proberen. Een vast model blijft vast. */
+  autoEscalate: boolean;
   controller: AbortController;
   deps: ChatDeps;
   config: RelayConfig;
@@ -128,7 +130,7 @@ async function runWithEscalation(ctx: TurnContext, first: RouteDecision): Promis
     if (active) active.model = decision.model;
     emit('relay:chat:route', { model: decision.model, reason: decision.reason, source: decision.source, attempt: logged.attempt });
 
-    const next = escalate(decision.model, snapshot, { allowMax: allowMax(deps, config), images: ctx.images, reason: '2× tool mislukt' });
+    const next = ctx.autoEscalate ? escalate(decision.model, snapshot, { allowMax: allowMax(deps, config), images: ctx.images, reason: '2× tool mislukt' }) : null;
     const result = await runAttempt(
       {
         conversationId: ctx.conversationId,
@@ -190,7 +192,7 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
     // Stickiness onthoudt alleen gewone routerkeuzes; een escalatie is eenmalig.
     if (current.modelMode === 'auto') conversationStore.setRoutedModel(conversationId, decision.model);
 
-    const ctx: TurnContext = { sender, requestId, conversationId, turn, images: 0, controller, deps, config, snapshot };
+    const ctx: TurnContext = { sender, requestId, conversationId, turn, images: 0, autoEscalate: current.modelMode === 'auto', controller, deps, config, snapshot };
     const { lastAnswer } = await runWithEscalation(ctx, decision);
 
     const stopped = controller.signal.aborted;
@@ -240,7 +242,8 @@ async function handleRetry(sender: WebContents, payload: ChatRetryPayload, deps:
       );
     }
 
-    await runWithEscalation({ sender, requestId, conversationId, turn: latest.turn, images: 0, controller, deps, config, snapshot }, decision);
+    const autoEscalate = conversation.modelMode === 'auto';
+    await runWithEscalation({ sender, requestId, conversationId, turn: latest.turn, images: 0, autoEscalate, controller, deps, config, snapshot }, decision);
     safeSend(sender, 'relay:chat:done', { requestId, stopped: controller.signal.aborted });
     sendConversationUpdated(sender, conversationStore, conversationId);
   } catch (error) {

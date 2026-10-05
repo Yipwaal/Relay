@@ -34,7 +34,7 @@ const configured: RoleModels = {
   embedding: 'cat-embed:0.6b',
 };
 
-test('catalogus: geïnstalleerde rollen direct, ontbrekende vallen terug op het grootste geschikte model', async () => {
+test('catalogus: geïnstalleerde rollen direct, ontbrekende krijgen een vervanger', async () => {
   mockOllama([
     { name: 'cat-gemma:12b', size: 8 * GB, capabilities: ['completion', 'vision', 'tools'] },
     { name: 'cat-gptoss:20b', size: 13 * GB, capabilities: ['completion', 'tools'] },
@@ -45,8 +45,9 @@ test('catalogus: geïnstalleerde rollen direct, ontbrekende vallen terug op het 
 
   assert.equal(roles.fast.model, 'cat-gemma:12b');
   assert.equal(roles.fast.fallback, false);
-  assert.equal(roles.max.model, 'cat-gptoss:20b');
-  assert.equal(roles.max.fallback, true);
+  // Geen model groter dan reasoning: max blijft leeg (en wordt nooit het reasoning-model).
+  assert.equal(roles.max.model, null);
+  assert.equal(roles.background.model, 'cat-gemma:12b');
   assert.equal(roles.embedding.model, 'cat-embed-old:latest');
   assert.equal(models.length, 3);
 });

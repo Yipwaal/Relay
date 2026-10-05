@@ -186,4 +186,6 @@ export interface LocalModel {
   kvBytesPerToken: number | null;
   /** Uit /api/show, bv. ["completion", "vision", "tools"]; null als Ollama ze niet meldt. */
   capabilities: string[] | null;
+  /** Ollama-cloudmodel: draait niet op deze computer (berichten gaan naar ollama.com). */
+  remote: boolean;
 }

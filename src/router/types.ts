@@ -26,6 +26,8 @@ export interface InstalledModel {
   sizeBytes: number;
   /** Uit /api/show; null als Ollama ze niet meldt (oudere versie). */
   capabilities: string[] | null;
+  /** Ollama-cloudmodel (draait niet lokaal): nooit als automatische vervanger. */
+  remote?: boolean;
 }
 
 export interface ResolvedRole {

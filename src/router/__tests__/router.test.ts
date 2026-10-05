@@ -56,6 +56,15 @@ test('afbeelding → fast/vision, zonder classificatie', async () => {
   assert.equal(ctx.calls.length, 0);
 });
 
+test('afbeelding: een hoger model dat zelf beelden ziet blijft, maar max alleen zolang max mag', async () => {
+  const installed = ALL_INSTALLED.map((m) => (m.name === 'qwen3.8:27b' ? { ...m, capabilities: ['completion', 'vision'] } : m));
+  const ctx = { ...ctxWith({ taak: 'chat', complexiteit: 'laag' }), installed, roles: resolveRoles(CONFIGURED, installed) };
+  const kept = await routeMessage({ ...base, images: 1, currentModel: 'qwen3.8:27b', allowMax: true }, ctx);
+  assert.deepEqual([kept.model, kept.source], ['qwen3.8:27b', 'sticky']);
+  const notAllowed = await routeMessage({ ...base, images: 1, currentModel: 'qwen3.8:27b', allowMax: false }, ctx);
+  assert.deepEqual([notAllowed.model, notAllowed.source], ['gemma4:12b', 'rule']);
+});
+
 test('afbeelding zonder beeldmodel: de reden zegt het', async () => {
   const installed = ALL_INSTALLED.map((m) => ({ ...m, capabilities: (m.capabilities ?? []).filter((c) => c !== 'vision') }));
   const ctx = { ...ctxWith({ taak: 'chat', complexiteit: 'laag' }), installed, roles: resolveRoles(CONFIGURED, installed) };

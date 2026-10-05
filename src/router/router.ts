@@ -38,7 +38,13 @@ function fallbackReason(error: string | undefined): string {
 function imageDecision(input: RouteMessageInput, ctx: RouterContext, reason: string): RouteDecision {
   const { roles, installed } = ctx;
   // Een al geladen, hoger model dat zelf beelden ziet hoeft niet te wijken.
-  if (input.mode === 'auto' && levelOf(input.currentModel, roles) > 0 && supportsVision(installed, input.currentModel)) {
+  const higherThanFast = levelOf(input.currentModel, roles) > 0;
+  if (
+    input.mode === 'auto' &&
+    higherThanFast &&
+    keepCurrentModel(input.currentModel, 'fast', roles, input.allowMax) &&
+    supportsVision(installed, input.currentModel)
+  ) {
     return { model: input.currentModel, role: chatRoleOf(input.currentModel, roles), source: 'sticky', reason: `${reason} · aangehouden` };
   }
   const model = chatModel(roles, 'fast');

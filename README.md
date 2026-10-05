@@ -589,6 +589,9 @@ gpt-oss:20b niet geïnstalleerd → gemma4:12b`.
    0`, max. 64 tokens, eerste 2000 tekens van het bericht) naar
    `{taak: chat|redeneren|code|onderzoek, complexiteit: laag|middel|hoog}`.
    Duurt dat langer dan `classifyTimeoutMs` (3 s) of mislukt het → `fast`.
+   Alleen het huidige bericht gaat naar de classificeerder, geen geschiedenis
+   of tool-inhoud; de uitkomst is een enum, dus een bericht kan hooguit
+   kiezen tussen de rollen.
 4. **Mapping**:
 
    | taak \ complexiteit | laag | middel | hoog |

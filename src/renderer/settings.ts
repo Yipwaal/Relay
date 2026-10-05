@@ -98,6 +98,7 @@ function openSettings(): void {
   settingsDialog.showModal();
   settingsButton.classList.add('is-active');
   refreshFacts().catch((error: unknown) => showSettingsError(describeUnknownError(error)));
+  refreshRouterSettings().catch((error: unknown) => showSettingsError(describeUnknownError(error)));
 }
 
 settingsButton.addEventListener('click', openSettings);

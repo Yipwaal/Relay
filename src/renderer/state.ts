@@ -2,7 +2,23 @@ type ToolStatus = 'running' | 'done' | 'error';
 
 type DisplayMessage =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; model: string; streaming: boolean; failed: boolean; loadingModel: boolean }
+  | {
+      kind: 'assistant';
+      text: string;
+      model: string;
+      streaming: boolean;
+      failed: boolean;
+      loadingModel: boolean;
+      /** Waarom de router dit model koos ('code', 'probeer slimmer', …); null bij oude berichten en meldingen. */
+      route: string | null;
+      /** Welke poging van de beurt (1, 2, … na escalatie of "Probeer slimmer"). */
+      attempt: number;
+      /** Vervangen door een latere poging: gedimd, gaat niet meer naar het model. */
+      superseded: boolean;
+      /** Afgeleid door refreshAnswerFooters: label "model · reden" onder dit antwoord, en de knop "Probeer slimmer". */
+      showRoute: boolean;
+      canRetry: boolean;
+    }
   | {
       kind: 'tool';
       tool: string;
@@ -15,7 +31,10 @@ type DisplayMessage =
       preview: string;
       durationMs: number;
       open: boolean;
+      superseded: boolean;
     };
+
+type AssistantMessage = Extract<DisplayMessage, { kind: 'assistant' }>;
 
 /** De modelgeschiedenis zelf blijft in main (database); de renderer houdt alleen bij wat hij toont. */
 interface ConversationView extends RelayConversationSummary {
@@ -28,10 +47,33 @@ interface PendingRequest {
   requestId: string;
   conversationId: number;
   /** Assistant-bubbel die nu tokens ontvangt; null tussen twee segmenten (bv. rond een tool-aanroep). */
-  segment: Extract<DisplayMessage, { kind: 'assistant' }> | null;
-  /** Het model dat de router voor de lopende poging koos (relay:chat:route); '' tot dat bekend is. */
+  segment: AssistantMessage | null;
+  /** Wat de router voor de lopende poging koos (relay:chat:route); '' / null tot dat bekend is. */
   model: string;
+  route: string | null;
+  attempt: number;
+  /** De vorige poging(en) van deze beurt: worden gedimd zodra de nieuwe poging iets oplevert. */
+  replacing: DisplayMessage[];
   stopping: boolean;
+}
+
+function newPending(requestId: string, conversationId: number): PendingRequest {
+  return { requestId, conversationId, segment: null, model: '', route: null, attempt: 1, replacing: [], stopping: false };
+}
+
+function newAssistant(fields: Pick<AssistantMessage, 'text' | 'model'> & Partial<AssistantMessage>): AssistantMessage {
+  return {
+    kind: 'assistant',
+    streaming: false,
+    failed: false,
+    loadingModel: false,
+    route: null,
+    attempt: 1,
+    superseded: false,
+    showRoute: false,
+    canRetry: false,
+    ...fields,
+  };
 }
 
 interface IndexingState {
@@ -80,9 +122,9 @@ function toConversationView(summary: RelayConversationSummary): ConversationView
 
 function toDisplayMessage(m: RelayConversationMessage): DisplayMessage {
   if (m.kind === 'user') return { kind: 'user', text: m.text };
-  if (m.kind === 'notice') return { kind: 'assistant', text: m.text, model: '', streaming: false, failed: true, loadingModel: false };
+  if (m.kind === 'notice') return newAssistant({ text: m.text, model: '', failed: true, superseded: m.superseded });
   if (m.kind === 'assistant') {
-    return { kind: 'assistant', text: m.interrupted ? `${m.text} …` : m.text, model: m.model, streaming: false, failed: false, loadingModel: false };
+    return newAssistant({ text: m.interrupted ? `${m.text} …` : m.text, model: m.model, route: m.route, attempt: m.attempt, superseded: m.superseded });
   }
   const d = m.display;
   return {
@@ -97,5 +139,6 @@ function toDisplayMessage(m: RelayConversationMessage): DisplayMessage {
     durationMs: d.durationMs,
     // Eerder bekeken resultaten ingeklapt; nieuwe (live) kaarten met externe inhoud staan open.
     open: false,
+    superseded: m.superseded,
   };
 }

@@ -83,10 +83,10 @@ test('toConversationMessages toont bubbels zonder protocoltekst, kaarten en meld
   assert.deepEqual(toConversationMessages(rows), [
     { kind: 'user', text: 'Wat is de opzegtermijn?' },
     { kind: 'tool', display, superseded: false },
-    { kind: 'assistant', text: 'Eén maand.', model: 'm', interrupted: false, route: null, superseded: false },
+    { kind: 'assistant', text: 'Eén maand.', model: 'm', interrupted: false, route: null, attempt: 1, superseded: false },
     { kind: 'notice', text: 'Ollama lijkt niet te draaien', superseded: false },
-    { kind: 'assistant', text: 'Ik zoek het op.', model: 'm', interrupted: false, route: null, superseded: false },
-    { kind: 'assistant', text: 'Half antwoord', model: 'm', interrupted: true, route: null, superseded: false },
+    { kind: 'assistant', text: 'Ik zoek het op.', model: 'm', interrupted: false, route: null, attempt: 1, superseded: false },
+    { kind: 'assistant', text: 'Half antwoord', model: 'm', interrupted: true, route: null, attempt: 1, superseded: false },
   ]);
 });
 
@@ -110,10 +110,10 @@ test('toModelHistory laat vervangen pogingen weg, en tijdens een nieuwe poging o
 test('toConversationMessages geeft het routerlabel en vervangen pogingen door', () => {
   const rows = [
     row({ role: 'assistant', kind: 'assistant', content: 'Oud', model: 'gemma4:12b', route: 'chat', superseded: true }),
-    row({ role: 'assistant', kind: 'assistant', content: 'Nieuw', model: 'gpt-oss:20b', route: 'probeer slimmer' }),
+    row({ role: 'assistant', kind: 'assistant', content: 'Nieuw', model: 'gpt-oss:20b', route: 'probeer slimmer', attempt: 2 }),
   ];
   assert.deepEqual(toConversationMessages(rows), [
-    { kind: 'assistant', text: 'Oud', model: 'gemma4:12b', interrupted: false, route: 'chat', superseded: true },
-    { kind: 'assistant', text: 'Nieuw', model: 'gpt-oss:20b', interrupted: false, route: 'probeer slimmer', superseded: false },
+    { kind: 'assistant', text: 'Oud', model: 'gemma4:12b', interrupted: false, route: 'chat', attempt: 1, superseded: true },
+    { kind: 'assistant', text: 'Nieuw', model: 'gpt-oss:20b', interrupted: false, route: 'probeer slimmer', attempt: 2, superseded: false },
   ]);
 });

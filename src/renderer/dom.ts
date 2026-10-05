@@ -38,6 +38,7 @@ const ICON_PATHS: Record<string, string> = {
   paperclip: 'M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5',
   chevron: 'M6 9l6 6 6-6',
   check: 'M5 12.5l4.5 4.5L19 7.5',
+  up: 'M12 19V5M5 12l7-7 7 7',
   doc: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5',
   docUpload: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 11v6M9 14l3-3 3 3',
 };

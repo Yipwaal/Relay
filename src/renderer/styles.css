@@ -449,24 +449,21 @@ button {
   flex: none;
 }
 
+/* Modelkeuze in de chatbalk (Fase 6c): Automatisch of een vast model. */
 .model-pill {
   flex: none;
+  max-width: 300px;
   cursor: pointer;
   font-family: var(--font-body);
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
-  padding: 0 16px 0 12px;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 14px;
   border: none;
   border-radius: var(--r-pill);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text);
-}
-
-.model-pill .status-dot {
-  width: 7px;
-  height: 7px;
 }
 
 .model-pill:hover:not(:disabled) {
@@ -479,10 +476,15 @@ button {
 }
 
 .model-pill-name {
-  font: 800 13px/1 var(--font-heading);
+  font: 800 12.5px/1 var(--font-heading);
+  white-space: nowrap;
 }
 
 .model-pill-params {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: 600 11.5px/1 var(--font-body);
   color: var(--text-muted);
 }
@@ -493,8 +495,8 @@ button {
 
 .model-menu {
   position: absolute;
-  right: 0;
-  top: 48px;
+  left: 0;
+  bottom: calc(100% + 8px);
   z-index: 26;
   width: 340px;
   background: var(--surface-2);
@@ -514,6 +516,12 @@ button {
 .model-list {
   max-height: 360px;
   overflow-y: auto;
+}
+
+.menu-label-sub {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--divider);
 }
 
 .model-item {
@@ -708,9 +716,47 @@ button {
   font: 800 11.5px/1 var(--font-heading);
 }
 
-.msg-model {
-  font: 600 11px/1 var(--font-body);
+/* Onder het laatste antwoord van een poging: "model · reden" en "Probeer slimmer". */
+.msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  padding-left: 4px;
+}
+
+.msg-route {
+  font: 600 11px/1.2 var(--font-body);
   color: var(--text-muted);
+}
+
+.retry-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: 700 11.5px/1 var(--font-body);
+  cursor: pointer;
+}
+
+.retry-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--accent-strong);
+}
+
+.retry-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* Vervangen poging (escalatie of "Probeer slimmer"): blijft zichtbaar, maar gaat niet meer naar het model. */
+.is-superseded {
+  opacity: 0.5;
 }
 
 .msg-bubble {
@@ -1429,4 +1475,102 @@ button {
 
 .confirm-actions .btn {
   min-width: 110px;
+}
+
+/* ---------- Modelrouter in het instellingenscherm (Fase 6c) ---------- */
+.toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  cursor: pointer;
+}
+
+.toggle-input {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  margin: 1px 0 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.toggle-input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+
+.toggle-input:checked {
+  background: var(--accent-soft);
+}
+
+.toggle-input:checked::after {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggle-title {
+  font: 700 13.5px/1.3 var(--font-body);
+}
+
+.router-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.role-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+}
+
+.role-name {
+  flex: none;
+  width: 104px;
+  font: 700 12.5px/1.2 var(--font-body);
+  color: var(--text-2);
+}
+
+.role-model {
+  flex: 1;
+  min-width: 0;
+  font: 500 12.5px/1.3 var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.role-model.is-missing {
+  color: var(--neg);
+  font-family: var(--font-body);
+}
+
+.role-note {
+  flex: none;
+  max-width: 50%;
+  font: 600 11px/1.3 var(--font-body);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.role-note.is-warning {
+  color: var(--neg);
 }

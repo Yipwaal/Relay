@@ -22,6 +22,7 @@ function renderModelPicker(): void {
   modelPillNameEl.textContent = modelModeLabel(c);
   // In Automatisch: welk model de router het laatst koos.
   modelPillParamsEl.textContent = c.modelMode === 'fixed' ? (findModel(c.model)?.parameterSize ?? '') : (c.routedModel ?? '');
+  modelButtonEl.title = c.modelMode === 'fixed' ? `Vast model: ${c.model}` : c.routedModel ? `Automatisch — laatst gekozen: ${c.routedModel}` : 'Automatisch — Relay kiest per vraag';
   // Tijdens een antwoord in dít gesprek niet van model wisselen.
   modelButtonEl.disabled = appState.pending?.conversationId === c.id;
 }
@@ -58,6 +59,7 @@ function renderModelList(): void {
   modelListEl.textContent = '';
   if (!c) return;
   modelListEl.appendChild(modelItem('Automatisch', 'Relay kiest per vraag het beste model', '', c.modelMode === 'auto', () => void pickModel(c, null)));
+  modelListEl.appendChild(h('div', { class: 'menu-label menu-label-sub', text: 'Vast model' }));
   if (appState.models.length === 0) {
     modelListEl.appendChild(h('p', { class: 'model-menu-empty', text: 'Nog geen modellen gevonden in Ollama.' }));
     return;

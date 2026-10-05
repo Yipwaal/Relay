@@ -2,8 +2,6 @@ const ollamaStatusEl = document.getElementById('ollama-status') as HTMLElement;
 const ollamaStatusTextEl = document.getElementById('ollama-status-text') as HTMLElement;
 const OLLAMA_STATUS_INTERVAL_MS = 30_000;
 
-type AssistantMessage = Extract<DisplayMessage, { kind: 'assistant' }>;
-
 async function sendCurrentDraft(): Promise<void> {
   const c = activeConversation();
   const text = chatInputEl.value.trim();
@@ -20,11 +18,50 @@ async function sendCurrentDraft(): Promise<void> {
   if (wasEmpty) renderActive();
   else appendMessageElement(c.id, userMessage);
 
-  appState.pending = { requestId: window.relay.sendMessage(c.id, text), conversationId: c.id, segment: null, model: '', stopping: false };
+  appState.pending = newPending(window.relay.sendMessage(c.id, text), c.id);
+  afterRequestStarted(c);
+}
+
+/**
+ * "Probeer slimmer": de laatste vraag opnieuw, met het volgende model omhoog.
+ * Main kiest het model; het oude antwoord blijft staan tot het nieuwe iets
+ * oplevert en wordt dan gedimd.
+ */
+function retryLatest(): void {
+  const c = activeConversation();
+  if (!c || appState.pending !== null) return;
+  clearComposerError();
+  appState.pending = newPending(window.relay.retryMessage(c.id), c.id);
+  afterRequestStarted(c);
+}
+
+function afterRequestStarted(c: ConversationView): void {
   updateSendButton();
   renderModelPicker();
   renderSidebar();
   renderHeader();
+  refreshAnswerFooters(c);
+}
+
+/** Alles na de laatste vraag: het antwoord (of de antwoorden) van de huidige beurt. */
+function currentTurnMessages(c: ConversationView): DisplayMessage[] {
+  let lastUser = -1;
+  c.display.forEach((m, index) => {
+    if (m.kind === 'user') lastUser = index;
+  });
+  return c.display.slice(lastUser + 1);
+}
+
+/** De nieuwe poging levert iets op: nu pas de vorige dimmen (zoals main ze dan ook als vervangen opslaat). */
+function supersedeReplaced(pending: PendingRequest, conversation: ConversationView): void {
+  if (pending.replacing.length === 0) return;
+  for (const m of pending.replacing) {
+    if (m.kind === 'user') continue;
+    m.superseded = true;
+    updateMessageElement(m);
+  }
+  pending.replacing = [];
+  refreshAnswerFooters(conversation);
 }
 
 function pendingFor(requestId: string): { pending: PendingRequest; conversation: ConversationView | undefined } | null {
@@ -35,10 +72,11 @@ function pendingFor(requestId: string): { pending: PendingRequest; conversation:
 
 function startSegment(pending: PendingRequest, conversation: ConversationView): AssistantMessage {
   const model = pending.model || currentModelName(conversation);
-  const segment: AssistantMessage = { kind: 'assistant', text: '', model, streaming: true, failed: false, loadingModel: false };
+  const segment = newAssistant({ text: '', model, streaming: true, route: pending.route, attempt: pending.attempt });
   pending.segment = segment;
   conversation.display.push(segment);
   appendMessageElement(conversation.id, segment);
+  refreshAnswerFooters(conversation);
   return segment;
 }
 
@@ -54,14 +92,16 @@ function finishSegment(pending: PendingRequest, conversation: ConversationView |
   } else {
     updateMessageElement(segment);
   }
+  if (conversation) refreshAnswerFooters(conversation);
 }
 
-function endRequest(): void {
+function endRequest(conversation: ConversationView | undefined): void {
   appState.pending = null;
   updateSendButton();
   renderModelPicker();
   renderHeader();
   renderSidebar();
+  if (conversation) refreshAnswerFooters(conversation);
 }
 
 window.relay.onRoute((payload) => {
@@ -69,6 +109,10 @@ window.relay.onRoute((payload) => {
   if (!match?.conversation) return;
   finishSegment(match.pending, match.conversation);
   match.pending.model = payload.model;
+  match.pending.route = payload.reason;
+  match.pending.attempt = payload.attempt;
+  // Escalatie of "Probeer slimmer": wat er nu van deze beurt staat wordt vervangen.
+  if (payload.attempt > 1) match.pending.replacing = currentTurnMessages(match.conversation);
   // Stickiness volgt alleen gewone routerkeuzes; een escalatie is eenmalig (zie main).
   if (match.conversation.modelMode === 'auto' && payload.source !== 'escalation') match.conversation.routedModel = payload.model;
   renderModelPicker();
@@ -78,6 +122,7 @@ window.relay.onRoute((payload) => {
 window.relay.onChunk((payload) => {
   const match = pendingFor(payload.requestId);
   if (!match?.conversation) return;
+  supersedeReplaced(match.pending, match.conversation);
   const segment = match.pending.segment ?? startSegment(match.pending, match.conversation);
   segment.loadingModel = false;
   segment.text += payload.token;
@@ -95,6 +140,7 @@ window.relay.onStatus((payload) => {
 window.relay.onToolCall((payload) => {
   const match = pendingFor(payload.requestId);
   if (!match?.conversation) return;
+  supersedeReplaced(match.pending, match.conversation);
   finishSegment(match.pending, match.conversation);
   const tool: DisplayMessage = {
     kind: 'tool',
@@ -107,6 +153,7 @@ window.relay.onToolCall((payload) => {
     preview: '',
     durationMs: 0,
     open: AUTO_OPEN_TOOLS.has(payload.tool),
+    superseded: false,
   };
   match.conversation.display.push(tool);
   appendMessageElement(match.conversation.id, tool);
@@ -131,7 +178,7 @@ window.relay.onDone((payload) => {
   const segment = match.pending.segment;
   if (payload.stopped && segment && segment.text.trim().length > 0) segment.text = `${segment.text.trimEnd()} …`;
   finishSegment(match.pending, match.conversation);
-  endRequest();
+  endRequest(match.conversation);
   chatInputEl.focus();
 });
 
@@ -148,11 +195,11 @@ window.relay.onError((payload) => {
         updateMessageElement(m);
       }
     }
-    const errorMessage: DisplayMessage = { kind: 'assistant', text: payload.message, model: '', streaming: false, failed: true, loadingModel: false };
+    const errorMessage = newAssistant({ text: payload.message, model: '', failed: true });
     conversation.display.push(errorMessage);
     appendMessageElement(conversation.id, errorMessage);
   }
-  endRequest();
+  endRequest(conversation);
   void refreshOllamaStatus();
 });
 

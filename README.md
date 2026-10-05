@@ -15,7 +15,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
 - [x] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓, 5d modelkeuze + instellingen per gesprek ✓)
-- [ ] Fase 6 — Automatische modelrouter (in delen: 6a router-kern + tests ✓, 6b inbouw in main: log, escalatie, stickiness ✓, 6c router-UI, 6d afbeeldingen)
+- [ ] Fase 6 — Automatische modelrouter (in delen: 6a router-kern + tests ✓, 6b inbouw in main: log, escalatie, stickiness ✓, 6c router-UI ✓, 6d afbeeldingen)
 
 ## Vereisten
 
@@ -160,7 +160,8 @@ src/
     composer.ts    Invoerveld, stop-knop, document-chips met voortgang, paperclip
     dropzone.ts    Bestanden op het chatvenster slepen (overlay)
     conversations.ts  Gesprek kiezen/maken/hernoemen/verwijderen, berichten lazy laden
-    model-picker.ts   Modeldropdown in de header
+    model-picker.ts   Modelkeuze in de chatbalk: Automatisch of een vast model
+    router-settings.ts Instellingen: "Max-model toestaan" + welk model elke rol krijgt
     options-panel.ts  Context window / max. antwoordlengte / temperature per gesprek
     settings.ts    Instellingendialoog (geheugen)
     app.ts         Wiring: IPC-events, sneltoetsen, opstarten
@@ -523,9 +524,11 @@ uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
   in een gesprek met een ander model, worden de andere geladen chatmodellen
   direct ge-unload (`keep_alive: 0`); het background- en embedding-model en
   modellen met een lopend antwoord mogen blijven.
-- **Sinds Fase 6** staat bovenaan de lijst "Automatisch" (standaard): dan
-  kiest de router per bericht. Een vast model kiezen kan nog steeds; een
-  nieuw gesprek neemt een vast model over, anders start het op Automatisch.
+- **Sinds Fase 6** zit de modelkeuze in de chatbalk (naast de paperclip) en
+  staat bovenaan "Automatisch" (standaard): dan kiest de router per bericht,
+  en de knop toont welk model hij het laatst koos. Een vast model kiezen kan
+  nog steeds; een nieuw gesprek neemt een vast model over, anders start het
+  op Automatisch.
 - **Context window, max. antwoordlengte, temperature** staan per gesprek in
   de database (migratie v4; gesprekken van vóór v4 vallen terug op
   `config.json`) en gaan als `options` mee naar `/api/chat`. Het
@@ -665,6 +668,22 @@ SELECT d1.model AS van, d2.model AS naar, d2.reason, COUNT(*) AS aantal
 FROM router_decisions d1 JOIN router_decisions d2 ON d2.message_id = d1.message_id AND d2.attempt = d1.attempt + 1
 GROUP BY 1, 2, 3 ORDER BY aantal DESC;
 ```
+
+### In de interface
+
+- **Label onder elk antwoord**: `gpt-oss:20b · code` — het model en de reden
+  van de router (`chat · aangehouden`, `vast gekozen`, `probeer slimmer`,
+  `2× tool mislukt`, `classificatie te traag`, …). Bij een beurt met
+  tool-aanroepen staat het onder het laatste stuk van die poging.
+- **"Probeer slimmer"** staat onder het huidige antwoord op de laatste vraag.
+  Het nieuwe antwoord komt eronder; zodra het iets oplevert wordt de vorige
+  poging gedimd met `· vervangen` in het label (tool-kaarten van die poging
+  ook). Zo blijft het na herladen staan, want het komt uit dezelfde
+  `superseded`-vlag als waarmee main de geschiedenis voor het model filtert.
+- **Instellingen → Modelrouter**: de schakelaar "Max-model toestaan" (in
+  `app_settings`; zonder rij geldt `router.allowMax` uit `config.json`) en per
+  rol welk model hij nu echt krijgt, met "vervangt …" bij een terugval en een
+  `ollama pull`-hint als er niets geschikts is.
 
 ### Gevolgen voor bestaande data
 

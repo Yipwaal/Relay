@@ -51,7 +51,7 @@ function quoted(text: string): string {
 
 function buildToolCard(m: ToolMessage): HTMLElement {
   const hasPreview = m.status === 'done' && (m.items.length > 0 || m.preview.length > 0);
-  const card = h('div', { class: `tool-card is-${m.status}${m.open && hasPreview ? ' is-open' : ''}`, title: m.label });
+  const card = h('div', { class: `tool-card is-${m.status}${m.open && hasPreview ? ' is-open' : ''}${m.superseded ? ' is-superseded' : ''}`, title: m.label });
 
   const head = h('button', { class: 'tool-card-head', type: 'button' }, [
     h('span', { class: 'tool-glyph' }, [relayGlyph(20, true)]),
@@ -93,11 +93,73 @@ function buildToolCard(m: ToolMessage): HTMLElement {
 
 function buildToolCompact(m: ToolMessage): HTMLElement {
   const verb = TOOL_COMPACT_VERBS[m.tool] ?? 'Tool-aanroep:';
-  return h('div', { class: `tool-compact is-${m.status}`, title: m.status === 'error' ? toolErrorText(m) : m.label }, [
+  return h('div', { class: `tool-compact is-${m.status}${m.superseded ? ' is-superseded' : ''}`, title: m.status === 'error' ? toolErrorText(m) : m.label }, [
     h('span', { class: 'tool-glyph' }, [relayGlyph(14, false)]),
     h('span', { class: 'tool-compact-text', text: `${verb} ${quoted(m.query)}` }),
     h('span', { class: 'tool-status', text: toolStatusText(m) }),
   ]);
+}
+
+/** "gpt-oss:20b · code"; leeg als het model onbekend is (bv. een foutmelding). */
+function routeLabel(m: AssistantMessage): string {
+  const parts = [m.model, m.route ?? ''].filter((part) => part.length > 0);
+  if (parts.length === 0) return '';
+  return parts.join(' · ') + (m.superseded ? ' · vervangen' : '');
+}
+
+function buildAnswerFooter(m: AssistantMessage): HTMLElement | null {
+  const label = m.showRoute ? routeLabel(m) : '';
+  if (!label && !m.canRetry) return null;
+  let retry: HTMLButtonElement | null = null;
+  if (m.canRetry) {
+    retry = h('button', { class: 'retry-button', type: 'button', title: 'Stel dezelfde vraag opnieuw aan het volgende, slimmere model' }, [
+      icon('up', 13, 2.4),
+      h('span', { text: 'Probeer slimmer' }),
+    ]);
+    retry.disabled = appState.pending !== null;
+    retry.addEventListener('click', retryLatest);
+  }
+  return h('div', { class: 'msg-footer' }, [label ? h('span', { class: 'msg-route', text: label }) : null, retry]);
+}
+
+/**
+ * Het label staat onder het laatste antwoord van elke poging (bij een beurt
+ * met tool-aanroepen dus niet onder elk tussenstuk), "Probeer slimmer" alleen
+ * onder het huidige antwoord op de laatste vraag. Geeft de antwoorden terug
+ * die opnieuw getekend moeten worden.
+ */
+function computeAnswerFooters(c: ConversationView): AssistantMessage[] {
+  const lastOfAttempt = new Map<string, AssistantMessage>();
+  let turn = 0;
+  let latest: AssistantMessage | null = null;
+  for (const m of c.display) {
+    if (m.kind === 'user') {
+      turn++;
+      latest = null;
+      continue;
+    }
+    if (m.kind !== 'assistant' || m.failed) continue;
+    lastOfAttempt.set(`${turn}:${m.attempt}`, m);
+    if (!m.superseded) latest = m;
+  }
+  const finals = new Set(lastOfAttempt.values());
+  const changed: AssistantMessage[] = [];
+  for (const m of c.display) {
+    if (m.kind !== 'assistant') continue;
+    const showRoute = finals.has(m);
+    const canRetry = m === latest && !m.streaming;
+    // Het antwoord met de knop altijd opnieuw tekenen: die hangt ook af van appState.pending.
+    if (m.showRoute !== showRoute || m.canRetry !== canRetry || canRetry) {
+      m.showRoute = showRoute;
+      m.canRetry = canRetry;
+      changed.push(m);
+    }
+  }
+  return changed;
+}
+
+function refreshAnswerFooters(c: ConversationView): void {
+  for (const m of computeAnswerFooters(c)) updateMessageElement(m);
 }
 
 function buildMessageElement(m: DisplayMessage): HTMLElement {
@@ -117,9 +179,10 @@ function buildMessageElement(m: DisplayMessage): HTMLElement {
   } else if (m.streaming) {
     bubble.appendChild(h('span', { class: 'stream-cursor' }));
   }
-  return h('div', { class: 'msg-assistant' }, [
-    h('div', { class: 'msg-assistant-head' }, [avatar, h('span', { class: 'msg-author', text: 'Relay' }), h('span', { class: 'msg-model', text: m.model })]),
+  return h('div', { class: `msg-assistant${m.superseded ? ' is-superseded' : ''}` }, [
+    h('div', { class: 'msg-assistant-head' }, [avatar, h('span', { class: 'msg-author', text: 'Relay' })]),
     bubble,
+    buildAnswerFooter(m),
   ]);
 }
 
@@ -132,6 +195,7 @@ function scrollToBottom(): void {
 }
 
 function renderMessages(conversation: ConversationView): void {
+  computeAnswerFooters(conversation);
   messagesEl.textContent = '';
   for (const m of conversation.display) {
     const element = buildMessageElement(m);

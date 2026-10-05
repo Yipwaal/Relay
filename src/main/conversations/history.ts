@@ -69,7 +69,7 @@ export function toConversationMessages(rows: StoredMessage[]): ConversationMessa
     } else if (row.kind === 'assistant') {
       const text = stripPartialToolCall(row.content).trim();
       if (text.length > 0) {
-        messages.push({ kind: 'assistant', text, model: row.model ?? '', interrupted: row.status === 'interrupted', route: row.route, superseded });
+        messages.push({ kind: 'assistant', text, model: row.model ?? '', interrupted: row.status === 'interrupted', route: row.route, attempt: row.attempt, superseded });
       }
     } else if (row.kind === 'tool_result') {
       if (row.display) messages.push({ kind: 'tool', display: row.display, superseded });

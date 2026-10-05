@@ -42,20 +42,6 @@
             <span id="chat-title" class="chat-title" title="Dubbelklik om te hernoemen"></span>
             <span id="chat-meta" class="chat-meta"></span>
           </div>
-          <div class="model-picker">
-            <button id="model-button" class="model-pill" type="button" title="Model voor dit gesprek" aria-haspopup="listbox" aria-expanded="false">
-              <span class="status-dot"></span>
-              <span id="model-pill-name" class="model-pill-name"></span>
-              <span id="model-pill-params" class="model-pill-params"></span>
-              <svg class="model-pill-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
-            </button>
-            <div id="model-menu" class="model-menu" hidden>
-              <div class="menu-label">Lokale modellen</div>
-              <div id="model-list" class="model-list" role="listbox" aria-label="Lokale modellen"></div>
-              <p id="model-menu-error" class="model-menu-error" hidden></p>
-              <div class="menu-footer">Alleen modellen die al in Ollama staan. Nieuwe haal je op met <span class="mono">ollama pull</span>.</div>
-            </div>
-          </div>
         </header>
 
         <div id="chat-body" class="chat-body">
@@ -78,6 +64,19 @@
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5"></path></svg>
                   <span>Document</span>
                 </button>
+                <div class="model-picker">
+                  <button id="model-button" class="model-pill" type="button" title="Welk model antwoordt in dit gesprek" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="model-pill-name" class="model-pill-name"></span>
+                    <span id="model-pill-params" class="model-pill-params"></span>
+                    <svg class="model-pill-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+                  </button>
+                  <div id="model-menu" class="model-menu" hidden>
+                    <div class="menu-label">Model voor dit gesprek</div>
+                    <div id="model-list" class="model-list" role="listbox" aria-label="Model voor dit gesprek"></div>
+                    <p id="model-menu-error" class="model-menu-error" hidden></p>
+                    <div class="menu-footer">Alleen modellen die al in Ollama staan. Nieuwe haal je op met <span class="mono">ollama pull</span>.</div>
+                  </div>
+                </div>
                 <span class="composer-hint">Enter verstuurt · Shift + Enter voor een nieuwe regel</span>
                 <button id="stop-button" class="btn btn-secondary btn-stop" type="button" hidden><span class="stop-square"></span>Stop</button>
                 <button id="send-button" class="btn btn-primary btn-send" type="button" disabled>Verstuur</button>
@@ -120,6 +119,21 @@
             <input type="text" id="new-fact-input" class="text-input" placeholder="Nieuw feit, bijv. ‘Ik werk vier dagen per week’" maxlength="500" />
             <button type="submit" id="add-fact-button" class="btn btn-secondary" disabled>Toevoegen</button>
           </form>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-head">
+            <span class="section-title">Modelrouter</span>
+            <span class="section-hint">In <strong>Automatisch</strong> kiest Relay per vraag een model: snel voor gewone vragen, een redeneermodel voor code en lastige vragen. Hieronder zie je welk model elke rol nu krijgt; staat een model niet in Ollama, dan neemt een ander het over.</span>
+          </div>
+          <label class="toggle-row">
+            <input id="allow-max-input" class="toggle-input" type="checkbox" />
+            <span class="toggle-text">
+              <span class="toggle-title">Max-model toestaan</span>
+              <span class="section-hint">Zware vragen (redeneren, code of onderzoek met hoge complexiteit) mogen naar het grootste model. Trager en zwaarder voor je werkgeheugen.</span>
+            </span>
+          </label>
+          <div id="router-roles" class="router-roles"></div>
         </section>
 
         <section class="settings-section">
@@ -192,6 +206,7 @@
     <script src="./composer.js"></script>
     <script src="./dropzone.js"></script>
     <script src="./settings.js"></script>
+    <script src="./router-settings.js"></script>
     <script src="./options-panel.js"></script>
     <script src="./model-picker.js"></script>
     <script src="./conversations.js"></script>

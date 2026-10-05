@@ -124,10 +124,12 @@ export interface ConversationSummary {
  * Wat de UI van een opgeslagen bericht toont — de ruwe model-geschiedenis
  * blijft in main. superseded: een eerdere poging, vervangen door escalatie of
  * "Probeer slimmer" (gedimd getoond, gaat niet meer naar het model).
+ * attempt: welke poging van de beurt (1, 2, …); het label "model · reden"
+ * staat onder het laatste antwoord van elke poging.
  */
 export type ConversationMessage =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; text: string; model: string; interrupted: boolean; route: string | null; superseded: boolean }
+  | { kind: 'assistant'; text: string; model: string; interrupted: boolean; route: string | null; attempt: number; superseded: boolean }
   | { kind: 'tool'; display: ToolDisplay; superseded: boolean }
   | { kind: 'notice'; text: string; superseded: boolean };
 

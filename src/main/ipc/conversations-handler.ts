@@ -1,11 +1,12 @@
 import { ipcMain } from 'electron';
 import { isValidNumCtx, isValidNumPredict, isValidTemperature, loadConfig } from '../config';
 import { toConversationMessages } from '../conversations/history';
+import type { ImageStore } from '../conversations/images-store';
 import { MAX_TITLE_CHARS, resolveOptions, type ConversationRecord, type ConversationStore } from '../conversations/store';
 import type { ModelCatalog } from '../model-catalog';
 import { chatModelsOnly } from '../models';
 import { unloadLoadedModels } from '../ollama-lifecycle';
-import type { ChatOptions, ConversationMessage, ConversationSummary } from '../../shared/ipc-types';
+import type { ChatOptions, ConversationMessage, ConversationSummary, ImageData } from '../../shared/ipc-types';
 import { abortConversationRequests, modelsInUse } from './chat-handler';
 
 const UNLOAD_TIMEOUT_MS = 3000;
@@ -38,7 +39,7 @@ function parseOptions(value: unknown): ChatOptions {
 }
 
 /** CRUD voor de gesprekkenlijst in de sidebar, plus modelkeuze (Automatisch/vast) en instellingen per gesprek. */
-export function registerConversationsHandlers(store: ConversationStore, catalog: ModelCatalog): void {
+export function registerConversationsHandlers(store: ConversationStore, imageStore: ImageStore, catalog: ModelCatalog): void {
   function requireConversation(id: unknown): ConversationRecord {
     const conversation = isValidId(id) ? store.get(id) : undefined;
     if (!conversation) throw new Error('Gesprek bestaat niet (meer).');
@@ -105,6 +106,13 @@ export function registerConversationsHandlers(store: ConversationStore, catalog:
 
   ipcMain.handle('relay:conversations:messages', (_event, id: unknown): ConversationMessage[] => {
     const conversation = requireConversation(id);
-    return toConversationMessages(store.listMessages(conversation.id));
+    return toConversationMessages(store.listMessages(conversation.id), imageStore.listForConversation(conversation.id));
+  });
+
+  /** Bytes van één afbeelding voor een miniatuur; het type is bij het opslaan aan de eerste bytes herkend. */
+  ipcMain.handle('relay:conversations:image', (_event, id: unknown): ImageData => {
+    const image = isValidId(id) ? imageStore.get(id) : undefined;
+    if (!image) throw new Error('Afbeelding bestaat niet (meer).');
+    return image;
   });
 }

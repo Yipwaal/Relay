@@ -9,7 +9,9 @@ export interface ChatToolCall {
  * assistant-bericht kan staan (native tool_calls die naar Ollama teruggaan).
  */
 export type ChatMessage =
-  | { role: 'system' | 'user'; content: string }
+  | { role: 'system'; content: string }
+  /** images: base64, alleen voor een model dat beelden ziet (zie conversations/history.ts). */
+  | { role: 'user'; content: string; images?: string[] }
   | { role: 'assistant'; content: string; toolCalls?: ChatToolCall[] }
   | { role: 'tool'; content: string; toolName: string };
 
@@ -128,10 +130,27 @@ export interface ConversationSummary {
  * staat onder het laatste antwoord van elke poging.
  */
 export type ConversationMessage =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images: ConversationImage[] }
   | { kind: 'assistant'; text: string; model: string; interrupted: boolean; route: string | null; attempt: number; superseded: boolean }
   | { kind: 'tool'; display: ToolDisplay; superseded: boolean }
   | { kind: 'notice'; text: string; superseded: boolean };
+
+/** Een afbeelding bij een gebruikersbericht; de bytes haalt de renderer los op (relay:conversations:image). */
+export interface ConversationImage {
+  id: number;
+  name: string;
+}
+
+/** Een afbeelding die de renderer meestuurt; main controleert type (eerste bytes), aantal en grootte. */
+export interface OutgoingImage {
+  name: string;
+  data: Uint8Array;
+}
+
+export interface ImageData {
+  mime: string;
+  data: Uint8Array;
+}
 
 export interface ConversationUpdatedPayload {
   id: number;

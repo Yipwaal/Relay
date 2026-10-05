@@ -24,7 +24,7 @@ function updateSendButton(): void {
   sendButtonEl.hidden = streaming;
   stopButtonEl.hidden = !streaming;
   stopButtonEl.disabled = appState.pending?.stopping ?? false;
-  sendButtonEl.disabled = streaming || chatInputEl.value.trim().length === 0;
+  sendButtonEl.disabled = streaming || (chatInputEl.value.trim().length === 0 && appState.draftImages.length === 0);
 }
 
 function documentMeta(doc: RelayDocumentInfo): string {

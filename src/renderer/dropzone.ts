@@ -46,8 +46,12 @@ chatMainEl.addEventListener('dragleave', (event) => {
 chatMainEl.addEventListener('drop', (event) => {
   event.preventDefault();
   dropOverlayEl.hidden = true;
+  // Afbeeldingen gaan mee met de volgende vraag; andere bestanden worden documenten van dit gesprek.
   const files = Array.from(event.dataTransfer?.files ?? []);
-  if (files.length > 0) void addDroppedFiles(appState.activeId, files);
+  const images = files.filter(isImageFile);
+  const documents = files.filter((file) => !isImageFile(file));
+  if (images.length > 0) void addDraftImages(images);
+  if (documents.length > 0) void addDroppedFiles(appState.activeId, documents);
 });
 
 // Buiten het chatvenster (bv. de sidebar) mag een gesleept bestand ook niets openen.

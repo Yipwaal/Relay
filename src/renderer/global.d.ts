@@ -14,6 +14,8 @@ import type {
   LocalModel,
   MemoryFact,
   OllamaStatus,
+  OutgoingImage,
+  ImageData,
   RouterSettingsInfo,
   ToolCallPayload,
   ToolPreviewItem,
@@ -42,6 +44,8 @@ declare global {
     setModel(id: number, model: string | null): Promise<RelayConversationSummary>;
     setOptions(id: number, options: RelayChatOptions): Promise<RelayConversationSummary>;
     messages(id: number): Promise<RelayConversationMessage[]>;
+    /** Bytes + type van een afbeelding bij een bericht, voor de miniatuur. */
+    image(id: number): Promise<ImageData>;
     onUpdated(callback: (payload: ConversationUpdatedPayload) => void): void;
   }
 
@@ -69,7 +73,7 @@ declare global {
 
   interface RelayAPI {
     defaults(): Promise<RelayAppDefaults>;
-    sendMessage(conversationId: number, text: string): string;
+    sendMessage(conversationId: number, text: string, images?: OutgoingImage[]): string;
     retryMessage(conversationId: number): string;
     stopMessage(requestId: string): void;
     ollamaStatus(): Promise<OllamaStatus>;

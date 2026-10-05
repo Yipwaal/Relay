@@ -27,7 +27,30 @@ function activeRows(rows: StoredMessage[], active?: TurnRef): StoredMessage[] {
  * prompt-modus omgezet naar het tekstformaat, en een assistant-bericht
  * houdt zijn native tool_calls alleen als het resultaat er ook echt achter staat.
  */
-export function toModelHistory(allRows: StoredMessage[], toolMode: ToolMode, active?: TurnRef): ChatMessage[] {
+/**
+ * Afbeeldingen voor de modelgeschiedenis: `data` (base64) alleen voor de
+ * berichten waarvan het model de beelden echt mag zien — de recentste
+ * beurten, en alleen als het model beelden ziet — en `names` voor alle
+ * berichten, zodat oudere of onzichtbare afbeeldingen als "[afbeelding: …]"
+ * in de tekst blijven staan.
+ */
+export interface HistoryImages {
+  data: Map<number, string[]>;
+  names: Map<number, string[]>;
+}
+
+const NO_IMAGES: HistoryImages = { data: new Map(), names: new Map() };
+
+function userMessage(row: StoredMessage, images: HistoryImages): ChatMessage {
+  const data = images.data.get(row.id);
+  if (data && data.length > 0) return { role: 'user', content: row.content, images: data };
+  const names = images.names.get(row.id) ?? [];
+  if (names.length === 0) return { role: 'user', content: row.content };
+  const placeholders = names.map((name) => `[afbeelding: ${name}]`).join('\n');
+  return { role: 'user', content: row.content ? `${row.content}\n\n${placeholders}` : placeholders };
+}
+
+export function toModelHistory(allRows: StoredMessage[], toolMode: ToolMode, active?: TurnRef, images: HistoryImages = NO_IMAGES): ChatMessage[] {
   const rows = activeRows(allRows, active);
   const history: ChatMessage[] = [];
 
@@ -35,7 +58,7 @@ export function toModelHistory(allRows: StoredMessage[], toolMode: ToolMode, act
     if (row.kind === 'notice') return;
 
     if (row.kind === 'user') {
-      history.push({ role: 'user', content: row.content });
+      history.push(userMessage(row, images));
       return;
     }
 
@@ -60,12 +83,13 @@ export function toModelHistory(allRows: StoredMessage[], toolMode: ToolMode, act
 }
 
 /** Wat de UI toont: bubbels zonder protocoltekst, tool-kaarten, meldingen — vervangen pogingen gemarkeerd. */
-export function toConversationMessages(rows: StoredMessage[]): ConversationMessage[] {
+export function toConversationMessages(rows: StoredMessage[], images: Array<{ id: number; messageId: number; name: string }> = []): ConversationMessage[] {
   const messages: ConversationMessage[] = [];
   for (const row of rows) {
     const superseded = row.superseded;
     if (row.kind === 'user') {
-      messages.push({ kind: 'user', text: row.content });
+      const own = images.filter((image) => image.messageId === row.id).map((image) => ({ id: image.id, name: image.name }));
+      messages.push({ kind: 'user', text: row.content, images: own });
     } else if (row.kind === 'assistant') {
       const text = stripPartialToolCall(row.content).trim();
       if (text.length > 0) {

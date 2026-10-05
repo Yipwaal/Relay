@@ -12,9 +12,11 @@ import type {
   DocumentProgressPayload,
   DonePayload,
   ErrorPayload,
+  ImageData,
   LocalModel,
   MemoryFact,
   OllamaStatus,
+  OutgoingImage,
   RouterSettingsInfo,
   ToolCallPayload,
   ToolResultPayload,
@@ -28,10 +30,10 @@ contextBridge.exposeInMainWorld('relay', {
   defaults(): Promise<AppDefaults> {
     return ipcRenderer.invoke('relay:app:defaults');
   },
-  /** Alleen de nieuwe tekst: de geschiedenis leest main zelf uit de database. */
-  sendMessage(conversationId: number, text: string): string {
+  /** Alleen de nieuwe tekst (en afbeeldingen): de geschiedenis leest main zelf uit de database. */
+  sendMessage(conversationId: number, text: string, images: OutgoingImage[] = []): string {
     const requestId = crypto.randomUUID();
-    ipcRenderer.send('relay:chat:send', { requestId, conversationId, text });
+    ipcRenderer.send('relay:chat:send', { requestId, conversationId, text, images });
     return requestId;
   },
   /** "Probeer slimmer": de laatste beurt opnieuw met het volgende model omhoog. */
@@ -78,6 +80,9 @@ contextBridge.exposeInMainWorld('relay', {
     },
     messages(id: number): Promise<ConversationMessage[]> {
       return ipcRenderer.invoke('relay:conversations:messages', id);
+    },
+    image(id: number): Promise<ImageData> {
+      return ipcRenderer.invoke('relay:conversations:image', id);
     },
     onUpdated: (callback: (payload: ConversationUpdatedPayload) => void) => on('relay:conversations:updated', callback),
   },

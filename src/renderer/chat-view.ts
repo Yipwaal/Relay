@@ -162,9 +162,30 @@ function refreshAnswerFooters(c: ConversationView): void {
   for (const m of computeAnswerFooters(c)) updateMessageElement(m);
 }
 
+function buildImageThumb(image: DisplayImage): HTMLElement {
+  const img = h('img', { class: 'msg-image', title: image.name });
+  img.alt = image.name;
+  if (image.url) img.src = image.url;
+  else if (image.id !== undefined) {
+    const id = image.id;
+    storedImageUrl(id)
+      .then((url) => {
+        img.src = url;
+      })
+      .catch(() => {
+        img.alt = `${image.name} (niet meer beschikbaar)`;
+      });
+  }
+  return img;
+}
+
 function buildMessageElement(m: DisplayMessage): HTMLElement {
   if (m.kind === 'user') {
-    return h('div', { class: 'msg-user', text: m.text });
+    if (m.images.length === 0) return h('div', { class: 'msg-user', text: m.text });
+    return h('div', { class: 'msg-user-wrap' }, [
+      h('div', { class: 'msg-user-images' }, m.images.map(buildImageThumb)),
+      m.text ? h('div', { class: 'msg-user', text: m.text }) : null,
+    ]);
   }
   if (m.kind === 'tool') {
     return COMPACT_TOOLS.has(m.tool) ? buildToolCompact(m) : buildToolCard(m);

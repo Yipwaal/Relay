@@ -1,7 +1,9 @@
+import { supportsVision } from '../../router/catalog';
 import type { RouteDecision } from '../../router/types';
 import type { RelayConfig } from '../config';
-import { toModelHistory } from '../conversations/history';
-import { resolveOptions, type ConversationStore, type NewMessage, type TurnRef } from '../conversations/store';
+import { toModelHistory, type HistoryImages } from '../conversations/history';
+import type { ImageStore } from '../conversations/images-store';
+import { resolveOptions, type ConversationStore, type NewMessage, type StoredMessage, type TurnRef } from '../conversations/store';
 import type { DocumentStore } from '../documents/store';
 import type { MemoryStore } from '../memory/store';
 import type { CatalogSnapshot } from '../model-catalog';
@@ -15,11 +17,24 @@ import { buildSystemPrompt, MAX_MEMORY_CHARS } from './system-prompt';
 
 const LOADED_CHECK_TIMEOUT_MS = 500;
 const UNLOAD_TIMEOUT_MS = 3000;
+/** Zoveel recente vragen houden hun afbeeldingen in de geschiedenis; oudere worden "[afbeelding: …]" (context en laadtijd). */
+const IMAGE_TURNS_IN_HISTORY = 2;
 
 export interface AttemptStores {
   conversationStore: ConversationStore;
   memoryStore: MemoryStore;
   documentStore: DocumentStore;
+  imageStore: ImageStore;
+}
+
+/** Afbeeldingen voor de geschiedenis: echte beelden alleen voor een beeldmodel en de recentste vragen. */
+function historyImages(rows: StoredMessage[], conversationId: number, imageStore: ImageStore, vision: boolean): HistoryImages {
+  const names = new Map<number, string[]>();
+  for (const image of imageStore.listForConversation(conversationId)) names.set(image.messageId, [...(names.get(image.messageId) ?? []), image.name]);
+  if (!vision || names.size === 0) return { data: new Map(), names };
+  const recent = rows.filter((row) => row.kind === 'user').slice(-IMAGE_TURNS_IN_HISTORY).map((row) => row.id);
+  const data = new Map([...imageStore.forMessages(recent)].map(([id, images]) => [id, images.map((image) => image.base64)]));
+  return { data, names };
 }
 
 export interface AttemptInput {
@@ -86,7 +101,7 @@ function toStoredRow(entry: AppendedEntry, decision: RouteDecision): NewMessage 
  * transactie als vervangen gemarkeerd.
  */
 export async function runAttempt(input: AttemptInput, stores: AttemptStores, snapshot: CatalogSnapshot, config: RelayConfig): Promise<AttemptResult> {
-  const { conversationStore, memoryStore, documentStore } = stores;
+  const { conversationStore, memoryStore, documentStore, imageStore } = stores;
   const { conversationId, ref, decision } = input;
   const conversation = conversationStore.get(conversationId);
   if (!conversation) throw new Error('Gesprek bestaat niet (meer).');
@@ -114,12 +129,15 @@ export async function runAttempt(input: AttemptInput, stores: AttemptStores, sna
     toolMode,
     tools: [...tools.values()].map((t) => ({ name: t.name, description: t.description })),
   });
-  const history = toModelHistory(conversationStore.listMessages(conversationId), toolMode, ref);
+  const rows = conversationStore.listMessages(conversationId);
+  const vision = supportsVision(snapshot.installed, model);
+  const history = toModelHistory(rows, toolMode, ref, historyImages(rows, conversationId, imageStore, vision));
   const turnMessages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, ...history];
 
   console.log(
     `[relay] chat request conversation=${conversationId} turn=${ref.turn} attempt=${ref.attempt} model=${model} ` +
-      `route=${decision.source}:${decision.reason} toolMode=${toolMode} tools=${tools.size} facts=${facts.facts.length} messages=${turnMessages.length}`,
+      `route=${decision.source}:${decision.reason} toolMode=${toolMode} tools=${tools.size} facts=${facts.facts.length} messages=${turnMessages.length} ` +
+        `images=${turnMessages.reduce((n, m) => n + (m.role === 'user' ? (m.images?.length ?? 0) : 0), 0)}`,
   );
 
   // Cold start: een groot model laden kan tientallen seconden duren — laat de

@@ -690,6 +690,36 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* Gebruikersbericht met afbeeldingen (Fase 6d): miniaturen boven de tekst. */
+.msg-user-wrap {
+  align-self: flex-end;
+  max-width: 76%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.msg-user-wrap .msg-user {
+  max-width: 100%;
+}
+
+.msg-user-images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.msg-image {
+  display: block;
+  width: 168px;
+  height: 126px;
+  object-fit: cover;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
 .msg-assistant {
   align-self: flex-start;
   max-width: 88%;
@@ -1573,4 +1603,35 @@ button {
 
 .role-note.is-warning {
   color: var(--neg);
+}
+
+/* ---------- Afbeeldingen bij de vraag (Fase 6d) ---------- */
+.image-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 2px;
+}
+
+.image-chip {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--r-chip);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.image-chip-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-chip .icon-btn {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 4px;
 }

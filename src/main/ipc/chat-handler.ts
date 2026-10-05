@@ -3,7 +3,9 @@ import { escalate, routeInternal, routeMessage } from '../../router/router';
 import type { RouteDecision } from '../../router/types';
 import { loadConfig, type RelayConfig } from '../config';
 import { generateTitle, provisionalTitle } from '../conversations/title';
+import type { ImageStore } from '../conversations/images-store';
 import type { ConversationStore } from '../conversations/store';
+import { validateImages, type IncomingImage } from '../images/validate';
 import type { DocumentStore } from '../documents/store';
 import type { MemoryStore } from '../memory/store';
 import type { CatalogSnapshot, ModelCatalog } from '../model-catalog';
@@ -22,6 +24,7 @@ export interface ChatDeps {
   conversationStore: ConversationStore;
   memoryStore: MemoryStore;
   documentStore: DocumentStore;
+  imageStore: ImageStore;
   decisionStore: RouterDecisionStore;
   settingsStore: SettingsStore;
   catalog: ModelCatalog;
@@ -31,6 +34,8 @@ interface ChatSendPayload {
   requestId: string;
   conversationId: number;
   text: string;
+  /** Nog ongecontroleerd; zie validateImages. */
+  images?: unknown;
 }
 
 interface ChatRetryPayload {
@@ -47,14 +52,15 @@ function isConversationId(value: unknown): value is number {
 }
 
 /**
- * Alleen nieuwe gebruikerstekst komt uit de renderer; de geschiedenis leest
- * main zelf uit de database. Daarmee kan een gecompromitteerde renderer geen
- * nagemaakte tool-resultaten of assistant-berichten in het gesprek smokkelen.
+ * Alleen nieuwe gebruikerstekst (en eventuele afbeeldingen) komt uit de
+ * renderer; de geschiedenis leest main zelf uit de database. Daarmee kan een
+ * gecompromitteerde renderer geen nagemaakte tool-resultaten of
+ * assistant-berichten in het gesprek smokkelen.
  */
 function isChatSendPayload(value: unknown): value is ChatSendPayload {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return isRequestId(v.requestId) && isConversationId(v.conversationId) && typeof v.text === 'string' && v.text.trim().length > 0 && v.text.length <= MAX_MESSAGE_CHARS;
+  return isRequestId(v.requestId) && isConversationId(v.conversationId) && typeof v.text === 'string' && v.text.length <= MAX_MESSAGE_CHARS;
 }
 
 function isChatRetryPayload(value: unknown): value is ChatRetryPayload {
@@ -165,8 +171,8 @@ function recordFailure(deps: ChatDeps, conversationId: number, turn: number, mes
   }
 }
 
-async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: ChatDeps, controller: AbortController): Promise<void> {
-  const { conversationStore, catalog } = deps;
+async function handleSend(sender: WebContents, payload: ChatSendPayload, images: IncomingImage[], deps: ChatDeps, controller: AbortController): Promise<void> {
+  const { conversationStore, imageStore, catalog } = deps;
   const { requestId, conversationId } = payload;
   const text = payload.text.trim();
   let turn = 0;
@@ -176,8 +182,8 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
     const config = loadConfig();
 
     const isFirstTurn = conversationStore.listMessages(conversationId).length === 0;
-    turn = conversationStore.appendUserMessage(conversationId, text);
-    if (isFirstTurn) conversationStore.setAutoTitle(conversationId, provisionalTitle(text));
+    turn = conversationStore.appendUserMessage(conversationId, text, (messageId) => imageStore.insert(messageId, images));
+    if (isFirstTurn) conversationStore.setAutoTitle(conversationId, provisionalTitle(text || images[0]?.name || 'Afbeelding'));
     sendConversationUpdated(sender, conversationStore, conversationId);
 
     const snapshot = await catalog.current();
@@ -185,14 +191,15 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
     const current = conversationStore.get(conversationId);
     if (!current) throw new Error('Gesprek bestaat niet (meer).');
     const currentModel = current.modelMode === 'fixed' ? current.model : (current.routedModel ?? '');
+    // De afbeeldingsregel kijkt alleen naar dít bericht; een vervolgvraag gaat gewoon via de classificatie.
     const decision = await routeMessage(
-      { text, images: 0, mode: current.modelMode, currentModel, allowMax: allowMax(deps, config) },
+      { text: text || '(afbeelding)', images: images.length, mode: current.modelMode, currentModel, allowMax: allowMax(deps, config) },
       buildRouterContext(snapshot, config),
     );
     // Stickiness onthoudt alleen gewone routerkeuzes; een escalatie is eenmalig.
     if (current.modelMode === 'auto') conversationStore.setRoutedModel(conversationId, decision.model);
 
-    const ctx: TurnContext = { sender, requestId, conversationId, turn, images: 0, autoEscalate: current.modelMode === 'auto', controller, deps, config, snapshot };
+    const ctx: TurnContext = { sender, requestId, conversationId, turn, images: images.length, autoEscalate: current.modelMode === 'auto', controller, deps, config, snapshot };
     const { lastAnswer } = await runWithEscalation(ctx, decision);
 
     const stopped = controller.signal.aborted;
@@ -201,7 +208,7 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
 
     if (isFirstTurn && !stopped && !conversation.titleIsCustom && lastAnswer) {
       const titleModel = routeInternal('titel', snapshot.roles).model;
-      void generateTitle(config.ollamaUrl, titleModel, text, lastAnswer, config.router.backgroundKeepAlive).then((title) => {
+      void generateTitle(config.ollamaUrl, titleModel, text || '(een afbeelding)', lastAnswer, config.router.backgroundKeepAlive).then((title) => {
         if (title && conversationStore.get(conversationId) && conversationStore.setAutoTitle(conversationId, title)) {
           sendConversationUpdated(sender, conversationStore, conversationId);
         }
@@ -221,7 +228,7 @@ async function handleSend(sender: WebContents, payload: ChatSendPayload, deps: C
  * staan tot het nieuwe iets oplevert, en wordt dan gedimd (vervangen).
  */
 async function handleRetry(sender: WebContents, payload: ChatRetryPayload, deps: ChatDeps, controller: AbortController): Promise<void> {
-  const { conversationStore, decisionStore, catalog } = deps;
+  const { conversationStore, decisionStore, imageStore, catalog } = deps;
   const { requestId, conversationId } = payload;
   try {
     const conversation = conversationStore.get(conversationId);
@@ -233,17 +240,21 @@ async function handleRetry(sender: WebContents, payload: ChatRetryPayload, deps:
     const previousModel =
       decisionStore.latestFor(latest.turn)?.model ?? (conversation.modelMode === 'fixed' ? conversation.model : (conversation.routedModel ?? ''));
     const max = allowMax(deps, config);
-    const decision = escalate(previousModel, snapshot, { allowMax: max, images: 0, reason: 'probeer slimmer' });
+    const images = imageStore.countFor(latest.turn);
+    const decision = escalate(previousModel, snapshot, { allowMax: max, images, reason: 'probeer slimmer' });
     if (!decision) {
+      // Alleen naar de max-instelling verwijzen als die echt een slimmer model zou opleveren.
+      const maxWouldHelp = !max && escalate(previousModel, snapshot, { allowMax: true, images, reason: 'probeer slimmer' }) !== null;
+      const vision = images > 0 ? ' dat afbeeldingen kan zien' : '';
       throw new Error(
-        max
-          ? `Er is geen slimmer model dan ${previousModel} geïnstalleerd.`
-          : `Er is geen slimmer model dan ${previousModel} — zet "Max-model toestaan" aan in Instellingen.`,
+        maxWouldHelp
+          ? `Er is geen slimmer model dan ${previousModel} — zet "Max-model toestaan" aan in Instellingen.`
+          : `Er is geen slimmer model dan ${previousModel}${vision} geïnstalleerd.`,
       );
     }
 
     const autoEscalate = conversation.modelMode === 'auto';
-    await runWithEscalation({ sender, requestId, conversationId, turn: latest.turn, images: 0, autoEscalate, controller, deps, config, snapshot }, decision);
+    await runWithEscalation({ sender, requestId, conversationId, turn: latest.turn, images, autoEscalate, controller, deps, config, snapshot }, decision);
     safeSend(sender, 'relay:chat:done', { requestId, stopped: controller.signal.aborted });
     sendConversationUpdated(sender, conversationStore, conversationId);
   } catch (error) {
@@ -275,7 +286,15 @@ export function registerChatHandler(deps: ChatDeps): void {
       console.error('[relay] ongeldig chat:send-bericht genegeerd');
       return;
     }
-    startRequest(event, payload.requestId, payload.conversationId, (controller) => handleSend(event.sender, payload, deps, controller));
+    let images: IncomingImage[];
+    try {
+      images = validateImages(payload.images);
+    } catch (error) {
+      safeSend(event.sender, 'relay:chat:error', { requestId: payload.requestId, message: error instanceof Error ? error.message : 'Ongeldige afbeelding.' });
+      return;
+    }
+    if (payload.text.trim().length === 0 && images.length === 0) return;
+    startRequest(event, payload.requestId, payload.conversationId, (controller) => handleSend(event.sender, payload, images, deps, controller));
   });
 
   ipcMain.on('relay:chat:retry', (event: IpcMainEvent, payload: unknown) => {

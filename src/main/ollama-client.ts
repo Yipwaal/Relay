@@ -65,6 +65,9 @@ function toOllamaMessages(messages: ChatMessage[]): unknown[] {
         tool_calls: m.toolCalls.map((tc) => ({ function: { name: tc.name, arguments: tc.args } })),
       };
     }
+    if (m.role === 'user' && m.images && m.images.length > 0) {
+      return { role: m.role, content: m.content, images: m.images };
+    }
     return { role: m.role, content: m.content };
   });
 }

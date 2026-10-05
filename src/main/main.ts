@@ -12,6 +12,7 @@ import { createBeforeQuitHandler } from './quit';
 import { createMemoryStore } from './memory/store';
 import { createDocumentStore } from './documents/store';
 import { createConversationStore } from './conversations/store';
+import { createImageStore } from './conversations/images-store';
 import { createModelCatalog } from './model-catalog';
 import { createRouterDecisionStore } from './routing/decisions-store';
 import { createSettingsStore } from './routing/settings-store';
@@ -51,6 +52,7 @@ app.whenReady().then(() => {
   const memoryStore = createMemoryStore(db);
   const documentStore = createDocumentStore(db);
   const conversationStore = createConversationStore(db);
+  const imageStore = createImageStore(db);
   const decisionStore = createRouterDecisionStore(db);
   const settingsStore = createSettingsStore(db);
   const catalog = createModelCatalog(() => loadConfig());
@@ -61,8 +63,8 @@ app.whenReady().then(() => {
     console.log(`[relay] router: modellen nog niet opgehaald (${error instanceof Error ? error.message : String(error)})`);
   });
 
-  registerChatHandler({ conversationStore, memoryStore, documentStore, decisionStore, settingsStore, catalog });
-  registerConversationsHandlers(conversationStore, catalog);
+  registerChatHandler({ conversationStore, memoryStore, documentStore, imageStore, decisionStore, settingsStore, catalog });
+  registerConversationsHandlers(conversationStore, imageStore, catalog);
   registerMemoryHandlers(memoryStore);
   registerDocumentsHandlers(documentStore, conversationStore, catalog);
   registerOllamaHandlers(catalog);

@@ -15,7 +15,7 @@ de app doet: doorschakelen tussen het lokale model, web search en memory.
 - [x] Fase 3 — Memory (SQLite)
 - [x] Fase 4 — RAG over documenten
 - [x] Fase 5 — Nieuw design, meerdere gesprekken, modelbeheer (in delen: 5a design ✓, 5b afsluiten/stop/robuustheid ✓, 5c gesprekken + documenten per gesprek ✓, 5d modelkeuze + instellingen per gesprek ✓)
-- [ ] Fase 6 — Automatische modelrouter (in delen: 6a router-kern + tests ✓, 6b inbouw in main: log, escalatie, stickiness ✓, 6c router-UI ✓, 6d afbeeldingen)
+- [x] Fase 6 — Automatische modelrouter (in delen: 6a router-kern + tests ✓, 6b inbouw in main: log, escalatie, stickiness ✓, 6c router-UI ✓, 6d afbeeldingen ✓)
 
 ## Vereisten
 
@@ -117,6 +117,9 @@ src/
       store.ts         Gesprekken + berichten (één rij per model-bericht + kaartgegevens)
       history.ts       Rijen → modelgeschiedenis (per tool-modus) en → wat de UI toont
       title.ts         Voorlopige titel + korte samenvatting door het background-model
+      images-store.ts  Afbeeldingen bij gebruikersberichten (message_images)
+    images/
+      validate.ts      Afbeeldingen uit de renderer controleren: type aan de eerste bytes, aantal, grootte
     models.ts        Lokale chatmodellen (/api/tags + /api/show) + KV-cache-schatting
     chat/
       run-attempt.ts   Eén poging van een beurt met het gekozen model (geschiedenis, opslaan, unload)
@@ -162,6 +165,7 @@ src/
     conversations.ts  Gesprek kiezen/maken/hernoemen/verwijderen, berichten lazy laden
     model-picker.ts   Modelkeuze in de chatbalk: Automatisch of een vast model
     router-settings.ts Instellingen: "Max-model toestaan" + welk model elke rol krijgt
+    images.ts      Afbeeldingen bij de vraag (knop, plakken, slepen) + miniaturen uit de database
     options-panel.ts  Context window / max. antwoordlengte / temperature per gesprek
     settings.ts    Instellingendialoog (geheugen)
     app.ts         Wiring: IPC-events, sneltoetsen, opstarten
@@ -684,6 +688,33 @@ GROUP BY 1, 2, 3 ORDER BY aantal DESC;
   `app_settings`; zonder rij geldt `router.allowMax` uit `config.json`) en per
   rol welk model hij nu echt krijgt, met "vervangt …" bij een terugval en een
   `ollama pull`-hint als er niets geschikts is.
+
+### Afbeeldingen (Fase 6d)
+
+Zonder afbeeldingen had de regel "afbeelding → fast/vision" niets om op te
+reageren, dus Relay kan nu een afbeelding bij een vraag sturen: met de knop
+**Afbeelding**, door te plakken (Ctrl+V) of door hem op het chatvenster te
+slepen (andere bestanden worden zoals voorheen documenten van het gesprek).
+
+- **Controle in main**: de renderer is niet te vertrouwen, dus main herkent
+  het type aan de eerste bytes (alleen PNG en JPEG — die leest elk
+  Ollama-beeldmodel), niet aan naam of opgegeven type; max. 4 per vraag en
+  10 MB per stuk; de naam wordt een kale basename zonder stuurtekens. Zo komt
+  er niets anders in de database of bij Ollama (`src/main/images/validate.ts`).
+- **Opslag**: `message_images` (migratie v5), in dezelfde transactie als het
+  bericht; een gesprek verwijderen verwijdert ze mee. Miniaturen haalt de
+  renderer per afbeelding op en toont ze als `blob:`-URL (CSP: `img-src
+  'self' blob:`).
+- **Routing**: de afbeeldingsregel kijkt alleen naar het huidige bericht;
+  een vervolgvraag ("en welke kleur heeft de kat?") gaat via de classificatie
+  en blijft door stickiness meestal op het beeldmodel. Escalatie en "Probeer
+  slimmer" kiezen met een afbeelding in de beurt alleen modellen die beelden
+  zien; is er geen, dan zegt Relay dat.
+- **Geschiedenis**: alleen de twee recentste vragen sturen hun beelden mee
+  (context en laadtijd), en alleen naar een model dat beelden ziet. Oudere
+  afbeeldingen, of een model zonder beeld (bv. `gpt-oss:20b` voor een
+  codevraag erna), krijgen `[afbeelding: naam]` in de tekst, zodat het model
+  weet dat er een afbeelding was.
 
 ### Gevolgen voor bestaande data
 

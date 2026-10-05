@@ -55,3 +55,31 @@ test('streamChat stuurt num_ctx, num_predict en temperature mee als options', as
   }
   assert.deepEqual(sent.options, { num_ctx: 16384, num_predict: -1, temperature: 0.3 });
 });
+
+test('streamChat stuurt afbeeldingen van een gebruikersbericht mee als images', async () => {
+  const original = globalThis.fetch;
+  let sent: { messages?: unknown[] } = {};
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    sent = JSON.parse(String(init?.body)) as { messages?: unknown[] };
+    return new Response(JSON.stringify({ done: true }) + '\n', { status: 200 });
+  }) as typeof fetch;
+  try {
+    await streamChat(
+      {
+        baseUrl: 'http://localhost:11434',
+        model: 'm',
+        messages: [
+          { role: 'user', content: 'Wat zie je?', images: ['aGFsbG8='] },
+          { role: 'user', content: 'Zonder beeld', images: [] },
+        ],
+      },
+      { onToken: () => undefined },
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(sent.messages, [
+    { role: 'user', content: 'Wat zie je?', images: ['aGFsbG8='] },
+    { role: 'user', content: 'Zonder beeld' },
+  ]);
+});

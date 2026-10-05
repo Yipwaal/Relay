@@ -1,7 +1,21 @@
 type ToolStatus = 'running' | 'done' | 'error';
 
+/** Een afbeelding in een gebruikersbericht: nog niet opgeslagen (blob-URL) of uit de database (id). */
+interface DisplayImage {
+  name: string;
+  url?: string;
+  id?: number;
+}
+
+/** Een afbeelding bij de vraag die nog getypt wordt. */
+interface DraftImage {
+  name: string;
+  data: Uint8Array;
+  url: string;
+}
+
 type DisplayMessage =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images: DisplayImage[] }
   | {
       kind: 'assistant';
       text: string;
@@ -92,6 +106,7 @@ const appState = {
   /** Documenten die in het actieve gesprek doorzoekbaar zijn (eigen + globale). */
   documents: [] as RelayDocumentInfo[],
   indexing: null as IndexingState | null,
+  draftImages: [] as DraftImage[],
   pending: null as PendingRequest | null,
   factsCount: 0,
   renamingId: null as number | null,
@@ -121,7 +136,7 @@ function toConversationView(summary: RelayConversationSummary): ConversationView
 }
 
 function toDisplayMessage(m: RelayConversationMessage): DisplayMessage {
-  if (m.kind === 'user') return { kind: 'user', text: m.text };
+  if (m.kind === 'user') return { kind: 'user', text: m.text, images: m.images.map((image) => ({ name: image.name, id: image.id })) };
   if (m.kind === 'notice') return newAssistant({ text: m.text, model: '', failed: true, superseded: m.superseded });
   if (m.kind === 'assistant') {
     return newAssistant({ text: m.interrupted ? `${m.text} …` : m.text, model: m.model, route: m.route, attempt: m.attempt, superseded: m.superseded });

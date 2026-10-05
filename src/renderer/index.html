@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; connect-src 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; connect-src 'none'"
     />
     <title>Relay</title>
     <link rel="stylesheet" href="./styles.css" />
@@ -58,12 +58,18 @@
           <div class="composer-wrap">
             <div class="composer">
               <div id="doc-chips" class="doc-chips" hidden></div>
+              <div id="image-chips" class="image-chips" hidden></div>
               <textarea id="chat-input" class="composer-input" placeholder="Stel een vraag..." rows="2"></textarea>
               <div class="composer-actions">
                 <button id="attach-button" class="icon-label-button" type="button" title="Document toevoegen aan dit gesprek (.txt, .md, .pdf, .docx)">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 01-8.5-8.5l9.2-9.2a4 4 0 015.7 5.7l-9.2 9.2a2 2 0 01-2.8-2.8l8.5-8.5"></path></svg>
                   <span>Document</span>
                 </button>
+                <button id="image-button" class="icon-label-button" type="button" title="Afbeelding bij je vraag (PNG of JPEG, max. 4) — plakken of slepen kan ook">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="1.6"></circle><path d="M21 16l-5-5-8 8"></path></svg>
+                  <span>Afbeelding</span>
+                </button>
+                <input id="image-input" type="file" accept="image/png,image/jpeg" multiple hidden />
                 <div class="model-picker">
                   <button id="model-button" class="model-pill" type="button" title="Welk model antwoordt in dit gesprek" aria-haspopup="listbox" aria-expanded="false">
                     <span id="model-pill-name" class="model-pill-name"></span>
@@ -77,13 +83,13 @@
                     <div class="menu-footer">Alleen modellen die al in Ollama staan. Nieuwe haal je op met <span class="mono">ollama pull</span>.</div>
                   </div>
                 </div>
-                <span class="composer-hint">Enter verstuurt · Shift + Enter voor een nieuwe regel</span>
+                <span class="composer-hint">Enter verstuurt · Shift + Enter nieuwe regel</span>
                 <button id="stop-button" class="btn btn-secondary btn-stop" type="button" hidden><span class="stop-square"></span>Stop</button>
                 <button id="send-button" class="btn btn-primary btn-send" type="button" disabled>Verstuur</button>
               </div>
             </div>
             <p id="composer-error" class="composer-error" role="alert" hidden></p>
-            <div class="empty-hint">Sleep een document hierheen om het aan dit gesprek toe te voegen.</div>
+            <div class="empty-hint">Sleep een document hierheen om het aan dit gesprek toe te voegen, of een afbeelding om er iets over te vragen.</div>
           </div>
           <div class="empty-spacer-bottom"></div>
         </div>
@@ -94,7 +100,7 @@
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M12 11v6M9 14l3-3 3 3"></path></svg>
             </span>
             <span class="drop-title">Laat los om toe te voegen aan dit gesprek</span>
-            <span class="drop-hint">Alleen voor dit gesprek · .txt, .md, .pdf, .docx</span>
+            <span class="drop-hint">Documenten (.txt, .md, .pdf, .docx) voor dit gesprek · afbeeldingen (PNG, JPEG) bij je vraag</span>
           </div>
         </div>
       </main>
@@ -204,6 +210,7 @@
     <script src="./chat-view.js"></script>
     <script src="./sidebar.js"></script>
     <script src="./composer.js"></script>
+    <script src="./images.js"></script>
     <script src="./dropzone.js"></script>
     <script src="./settings.js"></script>
     <script src="./router-settings.js"></script>

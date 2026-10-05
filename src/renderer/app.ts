@@ -5,11 +5,12 @@ const OLLAMA_STATUS_INTERVAL_MS = 30_000;
 async function sendCurrentDraft(): Promise<void> {
   const c = activeConversation();
   const text = chatInputEl.value.trim();
-  if (!c || text.length === 0 || appState.pending !== null) return;
+  if (!c || (text.length === 0 && appState.draftImages.length === 0) || appState.pending !== null) return;
   clearComposerError();
 
   const wasEmpty = c.display.length === 0;
-  const userMessage: DisplayMessage = { kind: 'user', text };
+  const images = takeDraftImages();
+  const userMessage: DisplayMessage = { kind: 'user', text, images: images.map((image) => ({ name: image.name, url: image.url })) };
   c.display.push(userMessage);
   c.updatedAt = Date.now();
 
@@ -18,7 +19,8 @@ async function sendCurrentDraft(): Promise<void> {
   if (wasEmpty) renderActive();
   else appendMessageElement(c.id, userMessage);
 
-  appState.pending = newPending(window.relay.sendMessage(c.id, text), c.id);
+  const outgoing = images.map((image) => ({ name: image.name, data: image.data }));
+  appState.pending = newPending(window.relay.sendMessage(c.id, text, outgoing), c.id);
   afterRequestStarted(c);
 }
 

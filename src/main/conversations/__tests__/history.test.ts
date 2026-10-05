@@ -81,7 +81,7 @@ test('toConversationMessages toont bubbels zonder protocoltekst, kaarten en meld
     row({ role: 'assistant', kind: 'assistant', content: 'Half antwoord', model: 'm', status: 'interrupted' }),
   ];
   assert.deepEqual(toConversationMessages(rows), [
-    { kind: 'user', text: 'Wat is de opzegtermijn?' },
+    { kind: 'user', text: 'Wat is de opzegtermijn?', images: [] },
     { kind: 'tool', display, superseded: false },
     { kind: 'assistant', text: 'Eén maand.', model: 'm', interrupted: false, route: null, attempt: 1, superseded: false },
     { kind: 'notice', text: 'Ollama lijkt niet te draaien', superseded: false },
@@ -115,5 +115,35 @@ test('toConversationMessages geeft het routerlabel en vervangen pogingen door', 
   assert.deepEqual(toConversationMessages(rows), [
     { kind: 'assistant', text: 'Oud', model: 'gemma4:12b', interrupted: false, route: 'chat', attempt: 1, superseded: true },
     { kind: 'assistant', text: 'Nieuw', model: 'gpt-oss:20b', interrupted: false, route: 'probeer slimmer', attempt: 2, superseded: false },
+  ]);
+});
+
+test('toModelHistory: echte beelden alleen waar data is, anders "[afbeelding: …]" in de tekst', () => {
+  const old = row({ role: 'user', kind: 'user', content: 'Wat staat hierop?' });
+  const answer = row({ role: 'assistant', kind: 'assistant', content: 'Een kat.' });
+  const recent = row({ role: 'user', kind: 'user', content: '' });
+  const images = {
+    data: new Map([[recent.id, ['aGFsbG8=']]]),
+    names: new Map([
+      [old.id, ['kat.jpg']],
+      [recent.id, ['hond.png']],
+    ]),
+  };
+  assert.deepEqual(toModelHistory([old, answer, recent], 'native', undefined, images), [
+    { role: 'user', content: 'Wat staat hierop?\n\n[afbeelding: kat.jpg]' },
+    { role: 'assistant', content: 'Een kat.' },
+    { role: 'user', content: '', images: ['aGFsbG8='] },
+  ]);
+  // Zonder beelddata (model ziet geen beelden): alleen de namen.
+  assert.deepEqual(toModelHistory([recent], 'native', undefined, { data: new Map(), names: images.names }), [{ role: 'user', content: '[afbeelding: hond.png]' }]);
+});
+
+test('toConversationMessages zet afbeeldingen bij het juiste gebruikersbericht', () => {
+  const first = row({ role: 'user', kind: 'user', content: 'a' });
+  const second = row({ role: 'user', kind: 'user', content: 'b' });
+  const messages = toConversationMessages([first, second], [{ id: 7, messageId: second.id, name: 'x.png' }]);
+  assert.deepEqual(messages, [
+    { kind: 'user', text: 'a', images: [] },
+    { kind: 'user', text: 'b', images: [{ id: 7, name: 'x.png' }] },
   ]);
 });

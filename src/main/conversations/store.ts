@@ -79,7 +79,8 @@ export interface ConversationStore {
   delete(id: number): void;
   listMessages(conversationId: number): StoredMessage[];
   /** Nieuwe beurt: het gebruikersbericht is zijn eigen turn. Geeft dat id terug. */
-  appendUserMessage(conversationId: number, text: string): number;
+  /** withinTransaction: bv. afbeeldingen bij dit bericht wegschrijven, in dezelfde transactie. */
+  appendUserMessage(conversationId: number, text: string, withinTransaction?: (messageId: number) => void): number;
   /** Het laatste gebruikersbericht (de enige beurt die opnieuw geprobeerd kan worden). */
   latestTurn(conversationId: number): { turn: number; text: string } | undefined;
   /**
@@ -275,12 +276,13 @@ export function createConversationStore(db: DatabaseSync): ConversationStore {
       return (listMessagesStmt.all(conversationId) as unknown as MessageRow[]).map(toMessage);
     },
 
-    appendUserMessage(conversationId, text) {
+    appendUserMessage(conversationId, text, withinTransaction) {
       const now = Date.now();
       let id = 0;
       inTransaction(() => {
         id = Number(insertUserStmt.run(conversationId, text, now).lastInsertRowid);
         setOwnTurnStmt.run(id);
+        withinTransaction?.(id);
         touchStmt.run(now, conversationId);
       });
       return id;

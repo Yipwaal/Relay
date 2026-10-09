@@ -83,19 +83,28 @@ function buildConversationItem(c: ConversationView, now: number): HTMLElement {
   return item;
 }
 
-/** Filtert op titel (hoofdletterongevoelig); de hele lijst staat al in het geheugen van de renderer. */
-function visibleConversations(): ConversationView[] {
+/** Zoekveld alleen bij veel gesprekken; een verborgen veld mag niet blijven filteren. */
+function syncConversationSearch(): void {
   const searchable = appState.conversations.length >= SEARCH_FROM_CONVERSATIONS;
   conversationSearchWrapEl.hidden = !searchable;
   if (!searchable) conversationSearchEl.value = '';
-  const query = conversationSearchEl.value.trim().toLocaleLowerCase('nl');
+}
+
+/**
+ * Filtert op titel (hoofdletterongevoelig); de hele lijst staat al in het
+ * geheugen van de renderer. Het open gesprek blijft altijd staan, ook als het
+ * niet past (bv. een net aangemaakt "Nieuw gesprek").
+ */
+function visibleConversations(): ConversationView[] {
+  const query = conversationSearchEl.value.trim().toLowerCase();
   if (!query) return appState.conversations;
-  return appState.conversations.filter((c) => c.title.toLocaleLowerCase('nl').includes(query));
+  return appState.conversations.filter((c) => c.id === appState.activeId || c.title.toLowerCase().includes(query));
 }
 
 function renderSidebar(): void {
   const now = Date.now();
   conversationListEl.textContent = '';
+  syncConversationSearch();
   const conversations = visibleConversations();
   if (conversations.length === 0 && appState.conversations.length > 0) {
     conversationListEl.appendChild(h('div', { class: 'conv-empty', text: 'Geen gesprek met die titel.' }));

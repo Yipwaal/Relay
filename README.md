@@ -634,13 +634,16 @@ model, met als label `gemma4:12b · enig model geïnstalleerd`. Escalatie en
 
 Dat geldt zolang `fast`, `reasoning` en (als "Max-model toestaan" aan staat)
 `max` allemaal hetzelfde model opleveren. Wil je dat de router echt gaat
-routeren, pull dan minstens een tweede chatmodel:
+routeren, pull dan een tweede chatmodel voor `reasoning` (of `max`):
 
 ```bash
-ollama pull gpt-oss:20b   # reasoning: code, redeneren, onderzoek
-ollama pull qwen3.5:9b    # background: snel classificeren en titels maken (optioneel, anders doet gemma4:12b dat)
-ollama pull qwen3.8:27b   # max: alleen gebruikt met "Max-model toestaan" aan (optioneel)
+ollama pull gpt-oss:20b   # reasoning: code, redeneren, onderzoek — hiermee gaat de router echt routeren
+ollama pull qwen3.8:27b   # max: telt alleen mee met "Max-model toestaan" aan (optioneel)
 ```
+
+`qwen3.5:9b` maakt classificeren en titels sneller (anders doet `gemma4:12b`
+dat), maar vult alleen `background`: daarmee alleen gaat de router nog niet
+routeren.
 
 Binnen een minuut (of zodra je de modelkeuze opent) ziet Relay het nieuwe
 model en doet de classificatie vanzelf weer mee; er is geen instelling voor

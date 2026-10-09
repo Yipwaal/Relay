@@ -38,6 +38,7 @@ function chatModel(roles: ResolvedRoles, role: ChatRole): string {
  * naar wat de rollen nú opleveren, dus zodra er een tweede model bij komt
  * (na het verversen van /api/tags) doet de classificatie vanzelf weer mee.
  */
+// Zonder enig chatmodel is de lijst leeg en geeft dit true: chatModel() gooit dan de NoModelError.
 function onlyOneChatModel(roles: ResolvedRoles, allowMax: boolean): boolean {
   const candidates = [roles.fast.model, roles.reasoning.model, allowMax ? roles.max.model : null].filter((m): m is string => Boolean(m));
   return candidates.every((m) => sameModel(m, candidates[0] ?? ''));

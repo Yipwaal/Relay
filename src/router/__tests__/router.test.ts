@@ -142,3 +142,35 @@ test('escalate geeft het volgende model omhoog met de opgegeven reden', () => {
   });
   assert.equal(escalate('gpt-oss:20b', ctx, { allowMax: false, images: 0, reason: 'x' }), null);
 });
+
+test('één chatmodel geïnstalleerd: geen classificatie, gewoon dat model', async () => {
+  const installed = ALL_INSTALLED.filter((m) => m.name === 'gemma4:12b' || m.name === 'qwen3-embedding:0.6b');
+  const ctx = { ...ctxWith({ taak: 'code', complexiteit: 'hoog' }), installed, roles: resolveRoles(CONFIGURED, installed) };
+  for (const allowMax of [false, true]) {
+    const decision = await routeMessage({ ...base, text: 'Schrijf een parser', allowMax }, ctx);
+    assert.deepEqual([decision.model, decision.role, decision.source, decision.reason], ['gemma4:12b', 'fast', 'rule', 'enig model geïnstalleerd']);
+  }
+  assert.equal(ctx.calls.length, 0);
+});
+
+test('alleen max als tweede model: classificatie pas zodra max is toegestaan', async () => {
+  const installed = ALL_INSTALLED.filter((m) => m.name === 'gemma4:12b' || m.name === 'qwen3.8:27b');
+  const ctx = { ...ctxWith({ taak: 'code', complexiteit: 'hoog' }), installed, roles: resolveRoles(CONFIGURED, installed) };
+  const withoutMax = await routeMessage(base, ctx);
+  assert.deepEqual([withoutMax.model, withoutMax.reason], ['gemma4:12b', 'enig model geïnstalleerd']);
+  assert.equal(ctx.calls.length, 0);
+  const withMax = await routeMessage({ ...base, allowMax: true }, ctx);
+  assert.equal(withMax.model, 'qwen3.8:27b');
+  assert.equal(ctx.calls.length, 1);
+});
+
+test('komt er een tweede chatmodel bij, dan classificeert de router vanzelf weer', async () => {
+  const one = ALL_INSTALLED.filter((m) => m.name === 'gemma4:12b');
+  const two = ALL_INSTALLED.filter((m) => m.name === 'gemma4:12b' || m.name === 'gpt-oss:20b');
+  const ctx = ctxWith({ taak: 'code', complexiteit: 'middel' });
+  await routeMessage(base, { ...ctx, installed: one, roles: resolveRoles(CONFIGURED, one) });
+  assert.equal(ctx.calls.length, 0);
+  const decision = await routeMessage(base, { ...ctx, installed: two, roles: resolveRoles(CONFIGURED, two) });
+  assert.deepEqual([decision.model, decision.source, decision.reason], ['gpt-oss:20b', 'classifier', 'code']);
+  assert.equal(ctx.calls.length, 1);
+});

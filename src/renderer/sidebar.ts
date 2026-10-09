@@ -1,4 +1,8 @@
 const conversationListEl = document.getElementById('conversation-list') as HTMLElement;
+const conversationSearchWrapEl = document.getElementById('conversation-search-wrap') as HTMLElement;
+const conversationSearchEl = document.getElementById('conversation-search') as HTMLInputElement;
+/** Bij weinig gesprekken is een zoekveld ruis. */
+const SEARCH_FROM_CONVERSATIONS = 9;
 const chatTitleEl = document.getElementById('chat-title') as HTMLElement;
 const chatMetaEl = document.getElementById('chat-meta') as HTMLElement;
 const factsSummaryEl = document.getElementById('facts-summary') as HTMLElement;
@@ -79,10 +83,24 @@ function buildConversationItem(c: ConversationView, now: number): HTMLElement {
   return item;
 }
 
+/** Filtert op titel (hoofdletterongevoelig); de hele lijst staat al in het geheugen van de renderer. */
+function visibleConversations(): ConversationView[] {
+  const searchable = appState.conversations.length >= SEARCH_FROM_CONVERSATIONS;
+  conversationSearchWrapEl.hidden = !searchable;
+  if (!searchable) conversationSearchEl.value = '';
+  const query = conversationSearchEl.value.trim().toLocaleLowerCase('nl');
+  if (!query) return appState.conversations;
+  return appState.conversations.filter((c) => c.title.toLocaleLowerCase('nl').includes(query));
+}
+
 function renderSidebar(): void {
   const now = Date.now();
   conversationListEl.textContent = '';
-  for (const group of groupByDate(appState.conversations, now)) {
+  const conversations = visibleConversations();
+  if (conversations.length === 0 && appState.conversations.length > 0) {
+    conversationListEl.appendChild(h('div', { class: 'conv-empty', text: 'Geen gesprek met die titel.' }));
+  }
+  for (const group of groupByDate(conversations, now)) {
     conversationListEl.appendChild(
       h('div', { class: 'conv-group' }, [h('div', { class: 'conv-group-label', text: group.label }), ...group.items.map((c) => buildConversationItem(c, now))]),
     );
@@ -134,4 +152,12 @@ deleteConfirmButton.addEventListener('click', () => {
   const id = appState.deleteId;
   deleteDialog.close();
   if (id !== null) void deleteConversation(id);
+});
+
+conversationSearchEl.addEventListener('input', renderSidebar);
+conversationSearchEl.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || conversationSearchEl.value === '') return;
+  event.stopPropagation();
+  conversationSearchEl.value = '';
+  renderSidebar();
 });

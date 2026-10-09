@@ -265,6 +265,32 @@ button {
   flex: none;
 }
 
+.sidebar-search {
+  padding: 0 14px 8px;
+}
+
+.search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  color: var(--text);
+  font: 400 13px/1 var(--font-body);
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.conv-empty {
+  padding: 12px;
+  font: 400 12.5px/1.5 var(--font-body);
+  color: var(--text-muted);
+}
+
 .conv-list {
   flex: 1;
   min-height: 0;

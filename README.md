@@ -485,6 +485,8 @@ uit elkaar kunnen lopen (`src/main/conversations/history.ts`, architect-advies).
   de database, en een fout halverwege laat eerdere stappen staan. Een
   foutmelding wordt als `notice` bewaard (zichtbaar, maar nooit naar het
   model); een gestopt antwoord als `interrupted`.
+- **Zoeken**: vanaf 9 gesprekken staat boven de lijst een zoekveld dat op
+  titel filtert (hoofdletterongevoelig, in de renderer; Escape wist het).
 - **Titels**: na het eerste bericht meteen een voorlopige titel (eerste ~40
   tekens), na de eerste beurt één korte, niet-streamende aanroep naar
   hetzelfde (al geladen) model om het in 3–5 woorden samen te vatten.
@@ -591,7 +593,10 @@ gpt-oss:20b niet geïnstalleerd → gemma4:12b`.
 2. **Regels**: afbeelding → `fast`; interne taken (titel, en later geheugen
    samenvatten / zoekvraag herschrijven) → `background`; embeddings →
    `embedding`.
-3. **Anders classificeert het background-model** het bericht met Ollama's
+3. **Maar één chatmodel om uit te kiezen** → dat model, zonder classificatie
+   (label: `gemma4:12b · enig model geïnstalleerd`). Zie
+   [Met maar één model](#met-maar-één-model).
+4. **Anders classificeert het background-model** het bericht met Ollama's
    gestructureerde output (`format` = een JSON-schema met enums, `temperature
    0`, max. 64 tokens, eerste 2000 tekens van het bericht) naar
    `{taak: chat|redeneren|code|onderzoek, complexiteit: laag|middel|hoog}`.
@@ -599,7 +604,7 @@ gpt-oss:20b niet geïnstalleerd → gemma4:12b`.
    Alleen het huidige bericht gaat naar de classificeerder, geen geschiedenis
    of tool-inhoud; de uitkomst is een enum, dus een bericht kan hooguit
    kiezen tussen de rollen.
-4. **Mapping**:
+5. **Mapping**:
 
    | taak \ complexiteit | laag | middel | hoog |
    |---|---|---|---|
@@ -610,12 +615,37 @@ gpt-oss:20b niet geïnstalleerd → gemma4:12b`.
    `reasoning` komen uit de opdracht. De overige vakken zijn ingevuld:
    lichte vragen blijven op het snelle model, een zware gewone vraag mag naar
    `reasoning`, en `max` alleen voor zware niet-chatvragen.
-5. **Stickiness**: binnen een gesprek wisselt de router alleen naar een
+6. **Stickiness**: binnen een gesprek wisselt de router alleen naar een
    model dat **minstens één niveau hoger** is (ladder fast → reasoning →
    max). Na een codevraag op `gpt-oss:20b` blijft "dank je" daar dus staan
    (label: `chat · aangehouden`): geen herlaadtijd voor een kleine vraag.
    Het laatst gerouteerde model staat per gesprek in `routed_model`. Op `max`
    blijft een gesprek alleen hangen zolang max is toegestaan.
+
+### Met maar één model
+
+Heb je (zoals bij de start) alleen `gemma4:12b` geïnstalleerd, dan vallen
+`reasoning` en `background` terug op dat model en blijft `max` leeg — in
+Instellingen → Modelrouter zie je dat als "vervangt …". Classificeren zou dan
+nooit een ander model opleveren en kost alleen een extra Ollama-aanroep per
+bericht, dus de router slaat het over: elk bericht gaat direct naar het ene
+model, met als label `gemma4:12b · enig model geïnstalleerd`. Escalatie en
+"Probeer slimmer" hebben dan ook niets om naartoe te gaan.
+
+Dat geldt zolang `fast`, `reasoning` en (als "Max-model toestaan" aan staat)
+`max` allemaal hetzelfde model opleveren. Wil je dat de router echt gaat
+routeren, pull dan minstens een tweede chatmodel:
+
+```bash
+ollama pull gpt-oss:20b   # reasoning: code, redeneren, onderzoek
+ollama pull qwen3.5:9b    # background: snel classificeren en titels maken (optioneel, anders doet gemma4:12b dat)
+ollama pull qwen3.8:27b   # max: alleen gebruikt met "Max-model toestaan" aan (optioneel)
+```
+
+Binnen een minuut (of zodra je de modelkeuze opent) ziet Relay het nieuwe
+model en doet de classificatie vanzelf weer mee; er is geen instelling voor
+nodig. Een tweede model dat alleen `max` vult telt pas mee als "Max-model
+toestaan" aan staat.
 
 ### Escalatie
 
@@ -740,3 +770,15 @@ slepen (andere bestanden worden zoals voorheen documenten van het gesprek).
   vorige model (`embeddinggemma`) zijn geïndexeerd staan in het
   instellingenscherm als "verouderd embedding-model" tot je ze opnieuw
   toevoegt — of zet `models.embedding` terug op het oude model.
+
+## Mogelijke vervolgstappen
+
+Bewust (nog) niet gebouwd; losse verbeteringen voor als de behoefte er is:
+
+- **Bevestiging vóór `web_fetch`**: een pagina ophalen gebeurt nu zonder te
+  vragen (wel altijd zichtbaar in de chat). Een bevestiging zou het
+  restrisico van prompt-injection via webpagina's of afbeeldingen verkleinen.
+- **Routerlog opschonen**: `router_decisions` groeit onbeperkt (kleine rijen);
+  opschonen kan veilig voor rijen waarvan het bericht niet meer bestaat.
+- **WebP-afbeeldingen**: nu alleen PNG en JPEG, omdat niet zeker is dat elk
+  Ollama-beeldmodel WebP leest.

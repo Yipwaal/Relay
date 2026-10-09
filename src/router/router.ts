@@ -32,6 +32,17 @@ function chatModel(roles: ResolvedRoles, role: ChatRole): string {
   return model;
 }
 
+/**
+ * Is er maar één chatmodel om naartoe te routeren? Dan levert classificeren
+ * nooit een ander model op en is het alleen een extra Ollama-aanroep. Kijkt
+ * naar wat de rollen nú opleveren, dus zodra er een tweede model bij komt
+ * (na het verversen van /api/tags) doet de classificatie vanzelf weer mee.
+ */
+function onlyOneChatModel(roles: ResolvedRoles, allowMax: boolean): boolean {
+  const candidates = [roles.fast.model, roles.reasoning.model, allowMax ? roles.max.model : null].filter((m): m is string => Boolean(m));
+  return candidates.every((m) => sameModel(m, candidates[0] ?? ''));
+}
+
 function fallbackReason(error: string | undefined): string {
   return error && /langer dan/.test(error) ? 'classificatie te traag' : 'classificatie mislukt';
 }
@@ -57,9 +68,10 @@ function imageDecision(input: RouteMessageInput, ctx: RouterContext, reason: str
  * Kiest het model voor één gebruikersbericht:
  * 1. vast gekozen model → dat model (tenzij het een afbeelding niet kan zien);
  * 2. regels (afbeelding → fast/vision);
- * 3. anders classificatie door het background-model → mapping naar een rol
+ * 3. maar één chatmodel om uit te kiezen → dat model, zonder classificatie;
+ * 4. anders classificatie door het background-model → mapping naar een rol
  *    (timeout/fout → fast);
- * 4. stickiness: het huidige model blijft als de nieuwe keuze niet hoger is.
+ * 5. stickiness: het huidige model blijft als de nieuwe keuze niet hoger is.
  */
 export async function routeMessage(input: RouteMessageInput, ctx: RouterContext): Promise<RouteDecision> {
   const { roles } = ctx;
@@ -73,6 +85,10 @@ export async function routeMessage(input: RouteMessageInput, ctx: RouterContext)
 
   const rule = applyRules({ images: input.images });
   if (rule) return imageDecision(input, ctx, rule.reason);
+
+  if (onlyOneChatModel(roles, input.allowMax)) {
+    return { model: chatModel(roles, 'fast'), role: 'fast', source: 'rule', reason: 'enig model geïnstalleerd' };
+  }
 
   const result = await ctx.classify(input.text);
   const role = result.classification ? mapClassification(result.classification, input.allowMax) : 'fast';
